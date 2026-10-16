@@ -18,6 +18,16 @@ def normalize_username(raw: str) -> str:
     return raw.strip()
 
 
+def check_username(raw: str) -> str:
+    """规范化并校验用户名，返回规范化后的值；不合规则抛 ValueError。"""
+    v = normalize_username(raw)
+    if not USERNAME_MIN <= len(v) <= USERNAME_MAX:
+        raise ValueError(f"用户名长度需为 {USERNAME_MIN}–{USERNAME_MAX} 位")
+    if not USERNAME_PATTERN.fullmatch(v):
+        raise ValueError("用户名只能包含字母、数字、下划线和汉字")
+    return v
+
+
 class RegisterRequest(BaseModel):
     username: str
     password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
@@ -25,12 +35,7 @@ class RegisterRequest(BaseModel):
     @field_validator("username")
     @classmethod
     def _check_username(cls, v: str) -> str:
-        v = normalize_username(v)
-        if not USERNAME_MIN <= len(v) <= USERNAME_MAX:
-            raise ValueError(f"用户名长度需为 {USERNAME_MIN}–{USERNAME_MAX} 位")
-        if not USERNAME_PATTERN.fullmatch(v):
-            raise ValueError("用户名只能包含字母、数字、下划线和汉字")
-        return v
+        return check_username(v)
 
 
 class LoginRequest(BaseModel):
