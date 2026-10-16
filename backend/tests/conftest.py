@@ -147,3 +147,12 @@ async def admin_client(app, make_client, admin_user) -> httpx.AsyncClient:
     c = make_client(app)
     await login(c, "admin1", "pass1234")
     return c
+
+
+@pytest.fixture
+async def teacher_client(app, make_client, make_user) -> httpx.AsyncClient:
+    """一个正常状态的老师 teacher1 / pass1234，已登录的独立 client。"""
+    await make_user("teacher1")
+    c = make_client(app)
+    await login(c, "teacher1", "pass1234")
+    return c
