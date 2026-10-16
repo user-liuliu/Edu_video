@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 
 import pytest
@@ -103,6 +104,20 @@ async def test_login_locked_after_5_failures(client, make_user):
     assert r.json()["detail"]["message"] == "登录失败次数过多，请 15 分钟后再试"
     assert (await client.get("/api/auth/me")).status_code == 401
 
+
+
+async def test_concurrent_bad_logins_respect_lock(client, make_user):
+    """并发提交错误密码也不能绕过按用户名的 5 次锁定。"""
+    await make_user("t1", "pass1234")
+    rs = await asyncio.gather(
+        *(
+            client.post("/api/auth/login", json={"username": "t1", "password": "wrongpass"})
+            for _ in range(12)
+        )
+    )
+    codes = [r.status_code for r in rs]
+    assert sum(c != 429 for c in codes) <= 5 and 429 in codes
+    assert set(codes) <= {401, 429}
 
 async def test_successful_login_resets_user_failures(client, make_user):
     await make_user("t1", "pass1234")

@@ -70,7 +70,8 @@ async def login(
     name = normalize_username(body.username)
     ip = request.client.host if request.client else "unknown"
     limiter = LoginLimiter(redis)
-    if await limiter.is_locked(name, ip):
+    # 先占用一次尝试（原子计数）再查库和校验密码，并发请求也会被阈值挡住
+    if not await limiter.reserve_attempt(name, ip):
         raise api_error(429, "login_locked", "登录失败次数过多，请 15 分钟后再试")
 
     stmt = select(User).where(func.lower(User.username) == name.lower())
@@ -81,10 +82,10 @@ async def login(
     else:
         ok = verify_password(body.password, user.password_hash)
     if not ok:
-        await limiter.record_failure(name, ip)
+        # 这次尝试在 reserve_attempt 里已经计过数
         raise api_error(401, "invalid_credentials", "用户名或密码错误")
 
-    await limiter.reset_user(name)
+    await limiter.release_success(name, ip)
     request.session.clear()
     request.session[SESSION_UID] = str(user.id)
     request.session[SESSION_VERSION] = user.session_version
