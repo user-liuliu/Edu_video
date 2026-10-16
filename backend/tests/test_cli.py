@@ -6,6 +6,7 @@ from app.models import User, UserRole, UserStatus
 from app.security import verify_password
 
 ENV_MISSING_MSG = "请在 .env 中设置 INITIAL_ADMIN_USERNAME 和 INITIAL_ADMIN_PASSWORD"
+NAME_TAKEN_MSG = "用户名已被其他账号占用且密码不匹配，请更换 INITIAL_ADMIN_USERNAME 或手动处理"
 
 
 async def _users(db) -> list[User]:
@@ -27,32 +28,56 @@ async def test_idempotent(db):
     assert len(await _users(db)) == 1
 
 
-async def test_promotes_existing_pending_user_keeps_password(db, make_user):
-    await make_user("teacher_wang", password="oldpass12", status="pending")
-    # 用户名大小写不同、密码不同，也算同一个人；不改密码
-    assert await bootstrap_admin(db, "Teacher_Wang", "newpass12") == "promoted"
+async def test_promotes_existing_user_when_password_matches(db, make_user):
+    """没有正常状态的管理员、同名用户存在且密码对得上：提升为管理员，不改密码。"""
+    await make_user("teacher_wang", password="samepass12", status="pending")
+    # 用户名大小写不同也算同一个人
+    assert await bootstrap_admin(db, "Teacher_Wang", "samepass12") == "promoted"
     [user] = await _users(db)
+    assert user.username == "teacher_wang"
     assert user.role == UserRole.admin and user.status == UserStatus.active
-    assert verify_password("oldpass12", user.password_hash)
-    assert not verify_password("newpass12", user.password_hash)
+    assert verify_password("samepass12", user.password_hash)
 
 
-async def test_promotes_existing_user_without_password(db, make_user):
-    """已有管理员时，只给用户名也能把现有用户提升为管理员。"""
+async def test_refuses_promotion_when_password_mismatch(db, make_user):
+    """同名用户是别人先注册的（密码不同）：拒绝提升，防止借管理员用户名接管账号。"""
+    await make_user("teacher_wang", password="theirpass12", status="pending")
+    with pytest.raises(SystemExit) as exc:
+        await bootstrap_admin(db, "Teacher_Wang", "envpass123")
+    assert str(exc.value) == NAME_TAKEN_MSG
+    assert "envpass123" not in str(exc.value)  # 不回显密码
+    [user] = await _users(db)
+    assert user.role == UserRole.teacher and user.status == UserStatus.pending
+    assert verify_password("theirpass12", user.password_hash)
+
+
+async def test_noop_when_active_admin_exists_even_if_env_names_other_user(db, make_user):
+    """已有正常状态的管理员：不碰任何用户，被管理员禁用的账号不会被重新启用。"""
     await make_user("boss", role="admin")
-    await make_user("teacher_li", status="disabled")
-    assert await bootstrap_admin(db, "teacher_li", None) == "promoted"
-    count = await db.scalar(
+    await make_user("teacher_li", password="pass1234", status="disabled")
+    assert await bootstrap_admin(db, "teacher_li", "pass1234") == "noop"
+    users = {u.username: u for u in await _users(db)}
+    assert users["teacher_li"].role == UserRole.teacher
+    assert users["teacher_li"].status == UserStatus.disabled
+    admins = await db.scalar(
         select(func.count()).select_from(User).where(
             User.role == UserRole.admin, User.status == UserStatus.active
         )
     )
-    assert count == 2
+    assert admins == 1
 
 
 @pytest.mark.parametrize(
     ("username", "password"),
-    [(None, None), ("admin1", None), (None, "adminpass1"), ("  ", "adminpass1"), ("admin1", "  ")],
+    [
+        (None, None),
+        ("admin1", None),
+        (None, "adminpass1"),
+        ("  ", "adminpass1"),
+        ("admin1", "  "),
+        ("t1", None),  # 同名用户存在也必须给密码
+        ("old_admin", ""),
+    ],
 )
 async def test_exits_when_no_admin_and_env_missing(db, make_user, username, password):
     await make_user("t1")  # 有普通老师、但没有正常状态的管理员
@@ -63,10 +88,14 @@ async def test_exits_when_no_admin_and_env_missing(db, make_user, username, pass
     assert len(await _users(db)) == 2
 
 
-@pytest.mark.parametrize("username", [None, "", "   "])
-async def test_noop_when_admin_exists_and_env_missing(db, make_user, username):
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [(None, None), ("", None), ("   ", None), ("newadmin", None), ("newadmin", "adminpass1")],
+)
+async def test_noop_when_admin_exists_and_env_missing(db, make_user, username, password):
+    """已有正常状态的管理员：无论 .env 给没给、给的是不是新用户名，都不建账号。"""
     await make_user("boss", role="admin")
-    assert await bootstrap_admin(db, username, None) == "noop"
+    assert await bootstrap_admin(db, username, password) == "noop"
     assert len(await _users(db)) == 1
 
 
@@ -84,15 +113,6 @@ async def test_rejects_invalid_username(db, username):
         await bootstrap_admin(db, username, "adminpass1")
     assert "INITIAL_ADMIN_USERNAME" in str(exc.value)
     assert await _users(db) == []
-
-
-async def test_exits_when_new_user_without_password(db, make_user):
-    """已有管理员、给了新用户名但没给密码：不能建没有密码的账号。"""
-    await make_user("boss", role="admin")
-    with pytest.raises(SystemExit) as exc:
-        await bootstrap_admin(db, "newadmin", None)
-    assert str(exc.value) == ENV_MISSING_MSG
-    assert len(await _users(db)) == 1
 
 
 async def test_run_bootstrap_reads_settings(db, settings, monkeypatch):
