@@ -2,9 +2,13 @@ import fakeredis.aioredis
 import httpx
 import pytest
 from cryptography.fernet import Fernet
+from sqlalchemy import text
 
 from app.config import Settings, get_settings
+from app.db import create_engine, create_sessionmaker
 from app.main import create_app
+from app.models import Base, User, UserRole, UserStatus
+from app.security import hash_password
 
 
 @pytest.fixture(scope="session")
@@ -34,3 +38,53 @@ async def client(app):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+@pytest.fixture(scope="session")
+async def db_engine(settings):
+    """整个测试会话建一次表：先 drop_all 再 create_all。"""
+    engine = create_engine(settings.database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def db(db_engine):
+    """每个测试一个 AsyncSession；结束后清空所有表。"""
+    async with create_sessionmaker(db_engine)() as session:
+        try:
+            yield session
+        finally:
+            await session.rollback()
+    async with db_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE users, system_settings, model_configs CASCADE"))
+
+
+@pytest.fixture
+def make_user(db):
+    """建用户并提交；用户名冲突时回滚会话后把 IntegrityError 抛出去。"""
+
+    async def _make_user(
+        username: str = "t1",
+        password: str = "pass1234",
+        role: str = "teacher",
+        status: str = "active",
+    ) -> User:
+        user = User(
+            username=username,
+            password_hash=hash_password(password),
+            role=UserRole(role),
+            status=UserStatus(status),
+        )
+        db.add(user)
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        return user
+
+    return _make_user
