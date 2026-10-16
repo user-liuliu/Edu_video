@@ -303,3 +303,17 @@ async def test_model_config_admin_only(client, make_user):
 
 def test_voice_model_strips():
     assert Voice(speaker_id=" a ", label=" b ").model_dump() == {"speaker_id": "a", "label": "b"}
+
+
+async def test_422_does_not_echo_api_key(admin_client):
+    r = await admin_client.put(f"{URL}/outline_llm", json={"base_url": "https://a.example.com", "api_key": "sk-LEAK-1234"})
+    assert r.status_code == 422
+    assert "sk-LEAK-1234" not in r.text
+    errors = r.json()["detail"]
+    assert isinstance(errors, list) and errors
+    assert all(set(e) == {"type", "loc", "msg"} for e in errors)
+
+
+def test_update_repr_hides_api_key():
+    upd = ModelConfigUpdate(base_url="", model="", enabled=False, api_key="sk-hidden-5678")
+    assert "sk-hidden-5678" not in repr(upd)

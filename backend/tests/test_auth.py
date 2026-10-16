@@ -186,3 +186,9 @@ async def test_session_invalidated_when_session_version_bumps(client, db, make_u
     await db.commit()
     r = await client.get("/api/auth/me")
     assert r.status_code == 401 and r.json()["detail"]["code"] == "not_authenticated"
+
+
+async def test_422_does_not_echo_password(client):
+    r = await client.post("/api/auth/register", json={"username": "ab", "password": "SuperSecret-999"})
+    assert r.status_code == 422
+    assert "SuperSecret-999" not in r.text

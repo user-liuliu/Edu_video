@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
@@ -12,6 +13,7 @@ from app.admin import users_router as admin_users_router
 from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
+from app.errors import validation_error_handler
 from app.model_configs import router as model_configs_router
 from app.redis_client import create_redis
 from app.security import SecretBox
@@ -29,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
 
     app = FastAPI(title="教学视频 agent", lifespan=lifespan)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.state.settings = settings
     app.state.engine = create_engine(settings.database_url)
     app.state.sessionmaker = create_sessionmaker(app.state.engine)

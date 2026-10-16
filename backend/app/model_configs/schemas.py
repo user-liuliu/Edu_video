@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.purposes import Purpose
 
@@ -53,8 +53,8 @@ class ModelConfigUpdate(BaseModel):
     base_url: str
     model: str
     enabled: bool
-    # 不加长度等约束：校验失败时 FastAPI 会把原值写进 422 响应
-    api_key: str | None = None
+    # 不加长度等约束，少一个校验失败的入口；repr=False：日志、traceback 里不显示明文
+    api_key: str | None = Field(default=None, repr=False)
     clear_api_key: bool = False
     # 只有 tts 用；None 表示保留原来的音色
     voices: list[Voice] | None = None
