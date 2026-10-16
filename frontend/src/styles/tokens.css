@@ -1,0 +1,117 @@
+/*
+ * 视觉方向：黑板与作业本。气质是老师自己的教具，沉稳、清楚、不花哨；版面安静，只在品牌字和空状态的田字格上表达个性。
+ * 主色：黑板绿 #22614F（白底对比度 7.3:1），底色是带一点绿的纸白 #F4F7F5；错误用批改红 #B5352B，成功用叶绿 #3B7A2A，和主色区分开。
+ * 字体：正文和界面用系统中文黑体（PingFang SC / Microsoft YaHei / Noto Sans SC）；品牌名和页面标题用系统楷体，像老师的板书。不引入任何网络字体。
+ * 圆角统一 6px，层级靠留白和细边框区分，不叠阴影。
+ */
+
+:root {
+  --ev-color-primary: #22614f;
+  --ev-color-bg: #f4f7f5;
+  --ev-color-surface: #ffffff;
+  --ev-color-text: #1e2b26;
+  --ev-color-muted: #56665f;
+  --ev-color-danger: #b5352b;
+  --ev-color-success: #3b7a2a;
+  --ev-color-border: #d5dfda;
+  --ev-radius: 6px;
+  --ev-font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Hiragino Sans GB", "Source Han Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* 楷体只用于品牌名和页面标题 */
+  --ev-font-display: "Kaiti SC", "STKaiti", "KaiTi", "楷体", var(--ev-font-sans);
+
+  /* ---- 映射到 Element Plus ---- */
+  /* light-N / dark-2 是主色与白 / 黑按 N0% / 20% 混合后的预算值；
+   * 按钮悬停用的 light-3 改成 10% 混合，保证白字对比度 ≥ 4.5:1 */
+  --el-color-primary: var(--ev-color-primary);
+  --el-color-primary-light-3: #387161;
+  --el-color-primary-light-5: #91b0a7;
+  --el-color-primary-light-7: #bdd0ca;
+  --el-color-primary-light-8: #d3dfdc;
+  --el-color-primary-light-9: #e9efed;
+  --el-color-primary-dark-2: #1b4e3f;
+
+  --el-color-success: var(--ev-color-success);
+  --el-color-success-light-3: #76a26a;
+  --el-color-success-light-5: #9dbd95;
+  --el-color-success-light-7: #c4d7bf;
+  --el-color-success-light-8: #d8e4d4;
+  --el-color-success-light-9: #ebf2ea;
+  --el-color-success-dark-2: #2f6222;
+
+  --el-color-danger: var(--ev-color-danger);
+  --el-color-danger-light-3: #bc4940;
+  --el-color-danger-light-5: #da9a95;
+  --el-color-danger-light-7: #e9c2bf;
+  --el-color-danger-light-8: #f0d7d5;
+  --el-color-danger-light-9: #f8ebea;
+  --el-color-danger-dark-2: #912a22;
+  --el-color-error: var(--el-color-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+
+  --el-text-color-primary: var(--ev-color-text);
+  --el-text-color-regular: var(--ev-color-text);
+  --el-text-color-secondary: var(--ev-color-muted);
+  --el-bg-color: var(--ev-color-surface);
+  --el-bg-color-overlay: var(--ev-color-surface);
+  --el-bg-color-page: var(--ev-color-bg);
+  --el-border-color: var(--ev-color-border);
+  --el-border-color-light: #e2e9e5;
+  --el-border-color-lighter: #ebf0ed;
+  --el-border-radius-base: var(--ev-radius);
+  --el-border-radius-small: 4px;
+  --el-font-family: var(--ev-font-sans);
+}
+
+/* ---- 基础样式 ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--ev-color-bg);
+  color: var(--ev-color-text);
+  font-family: var(--ev-font-sans);
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+a {
+  color: var(--ev-color-primary);
+}
+
+/* 键盘导航时保留清楚的焦点框 */
+:focus-visible {
+  outline: 2px solid var(--ev-color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
