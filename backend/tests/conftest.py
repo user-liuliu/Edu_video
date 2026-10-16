@@ -1,9 +1,13 @@
+from typing import Annotated
+
 import fakeredis.aioredis
 import httpx
 import pytest
 from cryptography.fernet import Fernet
+from fastapi import Depends
 from sqlalchemy import text
 
+from app.auth import UserOut, require_active_user
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker
 from app.main import create_app
@@ -23,11 +27,23 @@ def settings() -> Settings:
     )
 
 
+async def login(client: httpx.AsyncClient, username: str, password: str) -> None:
+    """用账号密码登录；登录失败直接让测试失败。会话 cookie 保存在 client 上。"""
+    r = await client.post("/api/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+
+
 @pytest.fixture
 async def app(settings):
     app = create_app(settings)
     await app.state.redis.aclose()
     app.state.redis = fakeredis.aioredis.FakeRedis()
+
+    # 只用于测试的路由：检查 require_active_user 的拦截效果（生产代码里没有）
+    @app.get("/api/_test/active")
+    async def _test_active(user: Annotated[User, Depends(require_active_user)]) -> UserOut:
+        return UserOut.model_validate(user)
+
     yield app
     await app.state.redis.aclose()
     await app.state.engine.dispose()

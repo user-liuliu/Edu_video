@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
 from app.redis_client import create_redis
@@ -42,5 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health(db: Annotated[AsyncSession, Depends(get_session)]) -> dict:
         await db.execute(text("SELECT 1"))
         return {"status": "ok", "db": True}
+
+    app.include_router(auth_router)
 
     return app
