@@ -23,5 +23,28 @@ services:
       - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      # 容器里通过服务名访问数据库和 Redis，覆盖 .env 里给本地开发用的 localhost 地址
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    # 不映射端口：只有 frontend 里的 nginx 能访问后端
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   pgdata:
