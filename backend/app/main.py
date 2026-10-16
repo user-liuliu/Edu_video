@@ -12,7 +12,9 @@ from app.admin import users_router as admin_users_router
 from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
+from app.model_configs import router as model_configs_router
 from app.redis_client import create_redis
+from app.security import SecretBox
 
 
 @asynccontextmanager
@@ -31,6 +33,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = create_engine(settings.database_url)
     app.state.sessionmaker = create_sessionmaker(app.state.engine)
     app.state.redis = create_redis(settings.redis_url)
+    app.state.secret_box = SecretBox(settings.master_key)
 
     app.add_middleware(
         SessionMiddleware,
@@ -49,5 +52,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_users_router)
     app.include_router(admin_settings_router)
+    app.include_router(model_configs_router)
 
     return app

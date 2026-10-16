@@ -12,7 +12,7 @@ from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker
 from app.main import create_app
 from app.models import Base, User, UserRole, UserStatus
-from app.security import hash_password
+from app.security import SecretBox, hash_password
 
 
 @pytest.fixture(scope="session")
@@ -33,6 +33,13 @@ async def login(client: httpx.AsyncClient, username: str, password: str) -> None
     assert r.status_code == 200, r.text
 
 
+async def put(client: httpx.AsyncClient, purpose: str, **fields) -> dict:
+    """调用 PUT /api/admin/model-configs/{purpose}，断言返回 200，返回 JSON。"""
+    r = await client.put(f"/api/admin/model-configs/{purpose}", json=fields)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 @pytest.fixture
 async def app(settings):
     app = create_app(settings)
@@ -47,6 +54,12 @@ async def app(settings):
     yield app
     await app.state.redis.aclose()
     await app.state.engine.dispose()
+
+
+@pytest.fixture
+def box(app) -> SecretBox:
+    """应用当前使用的 SecretBox（加解密模型 API key）。"""
+    return app.state.secret_box
 
 
 @pytest.fixture

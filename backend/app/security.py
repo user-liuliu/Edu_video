@@ -3,6 +3,7 @@
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from cryptography.fernet import Fernet, InvalidToken
+from fastapi import Request
 
 _hasher = PasswordHasher()
 
@@ -38,6 +39,11 @@ class SecretBox:
         except (InvalidToken, ValueError, TypeError):
             # 消息里不带密文或明文；from None 避免把底层异常链带进日志
             raise SecretDecryptError("无法解密密文") from None
+
+
+def get_secret_box(request: Request) -> SecretBox:
+    """FastAPI 依赖：应用启动时创建的 SecretBox（app.state.secret_box）。"""
+    return request.app.state.secret_box
 
 
 def mask_secret(plain: str) -> str:
