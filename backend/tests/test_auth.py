@@ -1,12 +1,14 @@
 import asyncio
 import importlib
 
+import fakeredis.aioredis
 import pytest
 from conftest import login
 from fastapi import HTTPException
 from sqlalchemy import update
 
 from app.auth import require_admin
+from app.main import create_app
 from app.models import User, UserRole, UserStatus
 from app.settings_store import RegistrationSettings, put_registration
 
@@ -101,9 +103,21 @@ async def test_login_locked_after_5_failures(client, make_user):
         assert r.status_code == 401
     r = await client.post("/api/auth/login", json={"username": "T1", "password": "pass1234"})
     assert r.status_code == 429 and r.json()["detail"]["code"] == "login_locked"
-    assert r.json()["detail"]["message"] == "登录失败次数过多，请 15 分钟后再试"
+    assert r.json()["detail"]["message"] == "登录失败次数过多，请稍后再试（最长 15 分钟）"
     assert (await client.get("/api/auth/me")).status_code == 401
 
+
+async def test_login_overlong_username_422_without_redis_key(app, client):
+    """超长用户名在进入接口前就被拒绝，不会在 Redis 里写失败计数。"""
+    r = await client.post("/api/auth/login", json={"username": "a" * 65, "password": "pass1234"})
+    assert r.status_code == 422
+    assert await app.state.redis.keys("login_fail:*") == []
+
+
+async def test_login_overlong_password_422(app, client):
+    r = await client.post("/api/auth/login", json={"username": "t1", "password": "p" * 129})
+    assert r.status_code == 422
+    assert await app.state.redis.keys("login_fail:*") == []
 
 
 async def test_concurrent_bad_logins_respect_lock(client, make_user):
@@ -192,3 +206,37 @@ async def test_422_does_not_echo_password(client):
     r = await client.post("/api/auth/register", json={"username": "ab", "password": "SuperSecret-999"})
     assert r.status_code == 422
     assert "SuperSecret-999" not in r.text
+
+
+def _session_cookie_attrs(r) -> set[str]:
+    """ev_session 这个 set-cookie 的属性（不含 cookie 值），统一转小写。"""
+    [cookie] = [c for c in r.headers.get_list("set-cookie") if c.startswith("ev_session=")]
+    return {a.strip().lower() for a in cookie.split(";")[1:]}
+
+
+async def test_session_cookie_flags_default(client, make_user):
+    """默认配置：会话 cookie 是 HttpOnly、SameSite=lax，不带 Secure（本地 http 也能登录）。"""
+    await make_user("t1", "pass1234")
+    r = await client.post("/api/auth/login", json={"username": "t1", "password": "pass1234"})
+    assert r.status_code == 200
+    attrs = _session_cookie_attrs(r)
+    assert {"httponly", "samesite=lax"} <= attrs
+    assert "secure" not in attrs
+
+
+async def test_session_cookie_secure_when_configured(settings, make_user, make_client):
+    """cookie_secure=True（部署在 https 后面）：会话 cookie 带 Secure。"""
+    app = create_app(settings.model_copy(update={"cookie_secure": True}))
+    await app.state.redis.aclose()
+    app.state.redis = fakeredis.aioredis.FakeRedis()
+    try:
+        await make_user("t1", "pass1234")
+        r = await make_client(app).post(
+            "/api/auth/login", json={"username": "t1", "password": "pass1234"}
+        )
+        assert r.status_code == 200
+        assert {"secure", "httponly", "samesite=lax"} <= _session_cookie_attrs(r)
+    finally:
+        await app.state.http.aclose()
+        await app.state.redis.aclose()
+        await app.state.engine.dispose()

@@ -189,3 +189,44 @@ async def test_probe_web_search_400(admin_client):
 async def test_probe_requires_admin(client):
     r = await _test(client, "outline_llm")
     assert r.status_code == 401
+
+
+async def test_other_httpx_error_recorded_not_500(admin_client, respx_mock):
+    """Timeout/Transport 以外的 httpx 错误（例如响应解码失败）也记成失败，不返回 500。"""
+    respx_mock.post(f"{BASE}/chat/completions").mock(side_effect=httpx.DecodingError("bad gzip sk-k1"))
+    await put(admin_client, "outline_llm", base_url=BASE, model="m1", enabled=False, api_key="sk-k1")
+    r = await _test(admin_client, "outline_llm")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": False, "message": "请求失败：DecodingError"}
+    item = (await _items(admin_client))["outline_llm"]
+    assert item["last_test_ok"] is False and item["last_test_message"] == "请求失败：DecodingError"
+
+
+async def test_405_without_v1_hints_incomplete_base_url(admin_client, respx_mock):
+    """接口地址少了 /v1：405 空响应时提示地址可能不完整，不自动补 /v1。"""
+    route = respx_mock.post("https://r.example.com/chat/completions").respond(405)
+    await put(admin_client, "outline_llm", base_url="https://r.example.com", model="m1", enabled=False, api_key="sk-k1")
+    r = await _test(admin_client, "outline_llm")
+    assert r.json() == {"ok": False, "message": "HTTP 405。接口地址可能不完整：OpenAI 兼容接口通常以 /v1 结尾"}
+    assert route.called
+
+
+async def test_404_without_v1_hint_keeps_body(admin_client, respx_mock):
+    respx_mock.get("https://r.example.com/api/models").respond(404, text="not found")
+    await put(admin_client, "image_gen", base_url="https://r.example.com/api", model="img-1", enabled=False, api_key="sk-k1")
+    r = await _test(admin_client, "image_gen")
+    assert r.json()["message"] == "HTTP 404：not found。接口地址可能不完整：OpenAI 兼容接口通常以 /v1 结尾"
+
+
+async def test_405_with_v1_no_hint(admin_client, respx_mock):
+    respx_mock.post(f"{BASE}/chat/completions").respond(405)
+    await put(admin_client, "outline_llm", base_url=BASE, model="m1", enabled=False, api_key="sk-k1")
+    r = await _test(admin_client, "outline_llm")
+    assert r.json() == {"ok": False, "message": "HTTP 405"}
+
+
+async def test_tts_404_no_v1_hint(admin_client, respx_mock):
+    respx_mock.post(f"{TTS_BASE}/api/v3/tts/create").respond(404)
+    await put(admin_client, "tts", base_url=TTS_BASE, model="seed-audio-1.0", enabled=False, api_key="tts-key-77", voices=VOICES)
+    r = await _test(admin_client, "tts")
+    assert r.json() == {"ok": False, "message": "HTTP 404"}

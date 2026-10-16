@@ -10,7 +10,7 @@ import asyncio
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.schemas import PASSWORD_MIN, check_username, normalize_username
+from app.auth.schemas import PASSWORD_MAX, PASSWORD_MIN, check_username, normalize_username
 from app.config import get_settings
 from app.db import create_engine, create_sessionmaker
 from app.models import User, UserRole, UserStatus
@@ -39,7 +39,7 @@ async def bootstrap_admin(db: AsyncSession, username: str | None, password: str 
     3. 同名用户已存在（不区分大小写）：只有密码校验通过才提升为 admin/active（不改密码），
        返回 "promoted"；否则抛 SystemExit(NAME_TAKEN_MSG)，不改动该用户，
        防止别人先注册同名账号、再借 bootstrap 拿到管理员权限。
-    4. 同名用户不存在：校验用户名规则和密码长度（至少 8 位），创建正常状态的管理员，返回 "created"。
+    4. 同名用户不存在：校验用户名规则和密码长度（8–128 位），创建正常状态的管理员，返回 "created"。
 
     所有 SystemExit 消息都不带密码。
     """
@@ -68,6 +68,8 @@ async def bootstrap_admin(db: AsyncSession, username: str | None, password: str 
         raise SystemExit(f"INITIAL_ADMIN_USERNAME 不合法：{e}") from None
     if len(password) < PASSWORD_MIN:
         raise SystemExit(f"INITIAL_ADMIN_PASSWORD 至少需要 {PASSWORD_MIN} 位")
+    if len(password) > PASSWORD_MAX:
+        raise SystemExit(f"INITIAL_ADMIN_PASSWORD 不能超过 {PASSWORD_MAX} 位")
 
     db.add(
         User(

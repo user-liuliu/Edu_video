@@ -72,7 +72,7 @@ async def login(
     limiter = LoginLimiter(redis)
     # 先占用一次尝试（原子计数）再查库和校验密码，并发请求也会被阈值挡住
     if not await limiter.reserve_attempt(name, ip):
-        raise api_error(429, "login_locked", "登录失败次数过多，请 15 分钟后再试")
+        raise api_error(429, "login_locked", "登录失败次数过多，请稍后再试（最长 15 分钟）")
 
     stmt = select(User).where(func.lower(User.username) == name.lower())
     user = (await db.execute(stmt)).scalar_one_or_none()

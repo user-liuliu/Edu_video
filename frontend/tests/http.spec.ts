@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { ApiError, errorText, request } from '../src/api/http'
+import { ApiError, errorText, request, setAuthFailureHandler } from '../src/api/http'
 
 function mockFetch(status: number, body?: unknown) {
   const fetchMock = vi.fn(async () =>
@@ -14,6 +14,7 @@ function mockFetch(status: number, body?: unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  setAuthFailureHandler(null)
 })
 
 test('business error → ApiError with detail.code and detail.message', async () => {
@@ -56,12 +57,53 @@ test('errorText: validation_error keeps Chinese messages (without the pydantic p
 })
 
 test('errorText: other ApiError → its message', () => {
-  expect(errorText(new ApiError(429, 'login_locked', '登录失败次数过多，请 15 分钟后再试'))).toBe(
-    '登录失败次数过多，请 15 分钟后再试',
+  expect(errorText(new ApiError(429, 'login_locked', '登录失败次数过多，请稍后再试（最长 15 分钟）'))).toBe(
+    '登录失败次数过多，请稍后再试（最长 15 分钟）',
   )
 })
 
 test('errorText: anything else → generic message', () => {
   expect(errorText(new TypeError('boom'))).toBe('操作失败，请稍后重试')
   expect(errorText(undefined)).toBe('操作失败，请稍后重试')
+})
+
+test('auth failure handler: called on 401 not_authenticated, then still throws', async () => {
+  const handler = vi.fn()
+  setAuthFailureHandler(handler)
+  mockFetch(401, { detail: { code: 'not_authenticated', message: '请先登录' } })
+  const err = await request('GET', '/api/admin/users').catch((e: unknown) => e)
+  expect(err).toMatchObject({ status: 401, code: 'not_authenticated' })
+  expect(handler).toHaveBeenCalledTimes(1)
+  expect(handler).toHaveBeenCalledWith(err, '/api/admin/users')
+})
+
+test('auth failure handler: called on 403 account / forbidden codes', async () => {
+  const handler = vi.fn()
+  setAuthFailureHandler(handler)
+  for (const code of ['account_pending', 'account_rejected', 'account_disabled', 'forbidden']) {
+    mockFetch(403, { detail: { code, message: 'x' } })
+    await expect(request('GET', '/api/admin/users')).rejects.toMatchObject({ status: 403, code })
+  }
+  expect(handler.mock.calls.map(([e]) => (e as ApiError).code)).toEqual([
+    'account_pending',
+    'account_rejected',
+    'account_disabled',
+    'forbidden',
+  ])
+})
+
+test('auth failure handler: not called for auth endpoints or other errors', async () => {
+  const handler = vi.fn()
+  setAuthFailureHandler(handler)
+  mockFetch(401, { detail: { code: 'invalid_credentials', message: '用户名或密码错误' } })
+  await expect(request('POST', '/api/auth/login', {})).rejects.toBeInstanceOf(ApiError)
+  for (const path of ['/api/auth/login', '/api/auth/register', '/api/auth/me']) {
+    mockFetch(401, { detail: { code: 'not_authenticated', message: '请先登录' } })
+    await expect(request('POST', path, {})).rejects.toBeInstanceOf(ApiError)
+  }
+  mockFetch(403, { detail: { code: 'registration_closed', message: '暂未开放注册' } })
+  await expect(request('GET', '/api/admin/users')).rejects.toBeInstanceOf(ApiError)
+  mockFetch(409, { detail: { code: 'last_admin', message: 'x' } })
+  await expect(request('GET', '/api/admin/users')).rejects.toBeInstanceOf(ApiError)
+  expect(handler).not.toHaveBeenCalled()
 })

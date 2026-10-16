@@ -1,10 +1,12 @@
 import { DOMWrapper, enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
+import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Component } from 'vue'
 import * as api from '../src/api/admin'
 import type { FieldConfig, FormFieldsConfig, GenerationParams, ModelConfigView, UserOut } from '../src/api/admin'
 import { ApiError } from '../src/api/http'
+import { useAuthStore } from '../src/stores/auth'
 import ModelConfigTab from '../src/views/admin/ModelConfigTab.vue'
 import PageConfigTab from '../src/views/admin/PageConfigTab.vue'
 import UsersTab from '../src/views/admin/UsersTab.vue'
@@ -140,9 +142,14 @@ const users = (): UserOut[] => [
 let messageError: ReturnType<typeof vi.fn>
 let messageSuccess: ReturnType<typeof vi.fn>
 let confirm: ReturnType<typeof vi.fn>
+let pinia: Pinia
 
 beforeEach(() => {
   vi.resetAllMocks()
+  pinia = createPinia()
+  setActivePinia(pinia)
+  // 当前登录的管理员是另一个账号（不是列表里的任何人）
+  useAuthStore().user = { id: 'me', username: '我', role: 'admin', status: 'active' }
   m.listUsers.mockResolvedValue({ items: users(), total: 5 })
   m.getRegistration.mockResolvedValue({ open: true })
   m.getFormFields.mockResolvedValue(formFields())
@@ -157,7 +164,7 @@ beforeEach(() => {
 })
 
 async function mountTab(c: Component): Promise<VueWrapper> {
-  const w = mount(c, { global: { plugins: [ElementPlus] }, attachTo: document.body })
+  const w = mount(c, { global: { plugins: [pinia, ElementPlus] }, attachTo: document.body })
   await flushPromises()
   return w
 }
@@ -232,6 +239,45 @@ test('users: last_admin error surfaces server message', async () => {
   expect(m.setRole).toHaveBeenCalledWith('u5', 'teacher')
   expect(messageError).toHaveBeenCalledTimes(2)
   expect(messageError).toHaveBeenLastCalledWith('系统至少需要保留一个管理员')
+})
+
+const SELF_NOTE = '这是你自己的账号，操作后你需要重新登录'
+
+test('users: actions on your own account warn in the confirmation', async () => {
+  useAuthStore().user = { id: 'u5', username: 'admin', role: 'admin', status: 'active' }
+  confirm.mockRejectedValue('cancel')
+  const w = await mountTab(UsersTab)
+
+  await button(row(w, 'admin'), '停用').trigger('click')
+  await flushPromises()
+  expect(confirm.mock.calls[0][0]).toContain(SELF_NOTE)
+
+  await button(row(w, 'admin'), '取消管理员').trigger('click')
+  await flushPromises()
+  expect(confirm.mock.calls[1][0]).toContain('这是你自己的账号')
+  expect(confirm.mock.calls[1][0]).toContain('你将失去管理后台权限')
+  expect(m.userAction).not.toHaveBeenCalled()
+  expect(m.setRole).not.toHaveBeenCalled()
+
+  await button(row(w, 'admin'), '重置密码').trigger('click')
+  await flushPromises()
+  const dialog = w.findAll('.el-dialog').find((d) => d.isVisible() && d.text().includes('重置密码'))!
+  expect(dialog.text()).toContain(SELF_NOTE)
+})
+
+test('users: actions on other accounts have no self warning', async () => {
+  confirm.mockRejectedValue('cancel')
+  const w = await mountTab(UsersTab)
+  await button(row(w, 'admin'), '停用').trigger('click')
+  await flushPromises()
+  await button(row(w, 'admin'), '取消管理员').trigger('click')
+  await flushPromises()
+  for (const [text] of confirm.mock.calls) expect(text).not.toContain('这是你自己的账号')
+
+  await button(row(w, '李老师'), '重置密码').trigger('click')
+  await flushPromises()
+  const dialog = w.findAll('.el-dialog').find((d) => d.isVisible() && d.text().includes('重置密码'))!
+  expect(dialog.text()).not.toContain('这是你自己的账号')
 })
 
 test('users: cancelling the confirm dialog does nothing', async () => {
@@ -389,6 +435,7 @@ test('model config: empty key input omits api_key in payload', async () => {
   await flushPromises()
   const dialog = w.find('.el-dialog')
   expect(dialog.text()).toContain('编辑模型配置：写大纲/讲稿')
+  expect(field(dialog, '接口地址').attributes('placeholder')).toBe('例如 https://example.com/v1')
   const key = field(dialog, 'API Key')
   expect(key.attributes('type')).toBe('password')
   expect(key.attributes('placeholder')).toBe('留空表示不修改')
@@ -415,6 +462,7 @@ test('model config: tts dialog edits voices and sends a new key', async () => {
   await button(row(w, '配音'), '编辑').trigger('click')
   await flushPromises()
   const dialog = w.find('.el-dialog')
+  expect(field(dialog, '接口地址').attributes('placeholder')).toBe('https://openspeech.bytedance.com')
   expect(dialog.find('input[aria-label="音色 ID 1"]').element).toHaveProperty('value', 'zh_female_1')
   expect(dialog.find('input[aria-label="显示名称 1"]').element).toHaveProperty('value', '温和女声')
   await button(dialog, '添加音色').trigger('click')

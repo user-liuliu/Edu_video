@@ -11,6 +11,8 @@ from app.models import UserRole, UserStatus
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fff]+$")
 USERNAME_MIN, USERNAME_MAX = 3, 32
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
+# 登录时用户名还没去空格，比注册上限宽一些；只为挡住超长输入（否则会原样写进 Redis 的计数 key）
+LOGIN_USERNAME_MAX = 64
 
 
 def normalize_username(raw: str) -> str:
@@ -39,8 +41,8 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    username: str = Field(min_length=1, max_length=LOGIN_USERNAME_MAX)
+    password: str = Field(min_length=1, max_length=PASSWORD_MAX)
 
 
 class UserOut(BaseModel):

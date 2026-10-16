@@ -107,6 +107,14 @@ async def test_rejects_short_password(db):
     assert await _users(db) == []
 
 
+async def test_rejects_overlong_password(db):
+    password = "p" * 129
+    with pytest.raises(SystemExit) as exc:
+        await bootstrap_admin(db, "admin1", password)
+    assert str(exc.value) == "INITIAL_ADMIN_PASSWORD 不能超过 128 位"
+    assert await _users(db) == []
+
+
 @pytest.mark.parametrize("username", ["ab", "a" * 33, "bad-name", "有 空格"])
 async def test_rejects_invalid_username(db, username):
     with pytest.raises(SystemExit) as exc:

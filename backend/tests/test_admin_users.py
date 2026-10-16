@@ -229,6 +229,16 @@ async def test_second_admin_allows_demotion(app, admin_client, admin_user, make_
     assert r.status_code == 422
 
 
+async def test_set_role_requires_active_target(admin_client, make_user, db):
+    """只有正常状态的账号可以改角色：待审核的用户不能直接设为管理员。"""
+    pending = await make_user("p1", status="pending")
+    r = await admin_client.put(f"/api/admin/users/{pending.id}/role", json={"role": "admin"})
+    assert r.status_code == 409 and _code(r) == "invalid_transition"
+    assert r.json()["detail"]["message"] == "只有正常状态的账号可以修改角色"
+    await db.refresh(pending)
+    assert pending.role == UserRole.teacher
+
+
 async def test_concurrent_demotions_keep_one_admin(
     app, admin_client, admin_user, make_user, make_client, db, monkeypatch
 ):

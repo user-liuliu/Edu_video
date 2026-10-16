@@ -116,13 +116,13 @@ test('register: shows server message for registration_closed', async () => {
 test('login: 429 shows lock message', async () => {
   const login = vi
     .spyOn(useAuthStore(), 'login')
-    .mockRejectedValue(new ApiError(429, 'login_locked', '登录失败次数过多，请 15 分钟后再试'))
+    .mockRejectedValue(new ApiError(429, 'login_locked', '登录失败次数过多，请稍后再试（最长 15 分钟）'))
   const { w, router } = await mountView(LoginView, '/login')
   await field(w, '用户名').setValue('王老师')
   await field(w, '密码').setValue('pass1234')
   await submit(w)
   expect(login).toHaveBeenCalledWith('王老师', 'pass1234')
-  expect(w.find('[role="alert"]').text()).toBe('登录失败次数过多，请 15 分钟后再试')
+  expect(w.find('[role="alert"]').text()).toBe('登录失败次数过多，请稍后再试（最长 15 分钟）')
   expect(router.currentRoute.value.name).toBe('login')
   w.unmount()
 })

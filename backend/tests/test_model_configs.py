@@ -314,6 +314,16 @@ async def test_422_does_not_echo_api_key(admin_client):
     assert all(set(e) == {"type", "loc", "msg"} for e in errors)
 
 
+async def test_non_ascii_api_key_rejected(admin_client, db):
+    """key 里混进全角逗号等非 ASCII 字符：422，提示里不带 key。"""
+    key = "sk-abc，def"
+    r = await admin_client.put(f"{URL}/outline_llm", json=_full("outline_llm", api_key=key))
+    assert r.status_code == 422
+    assert key not in r.text and "abc" not in r.text
+    assert "Key 只能包含英文字母、数字和符号" in r.json()["detail"][0]["msg"]
+    assert await db.get(ModelConfigRow, "outline_llm") is None
+
+
 def test_update_repr_hides_api_key():
     upd = ModelConfigUpdate(base_url="", model="", enabled=False, api_key="sk-hidden-5678")
     assert "sk-hidden-5678" not in repr(upd)

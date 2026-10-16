@@ -25,6 +25,13 @@ const saving = ref(false)
 const voiceError = ref('')
 
 const isTts = computed(() => props.config?.purpose === 'tts')
+// 走 OpenAI 兼容接口的用途：地址通常要带 /v1
+const OPENAI_PURPOSES = new Set(['outline_llm', 'review_llm', 'vision_llm', 'embedding', 'image_gen'])
+const baseUrlPlaceholder = computed(() => {
+  const purpose = props.config?.purpose ?? ''
+  if (purpose === 'tts') return 'https://openspeech.bytedance.com'
+  return OPENAI_PURPOSES.has(purpose) ? '例如 https://example.com/v1' : 'https://'
+})
 const hasSavedKey = computed(() => props.config?.api_key_status !== 'missing')
 
 // 每次打开都按当前配置重新填写；key 一律清空
@@ -113,7 +120,7 @@ async function onSave() {
   <el-dialog v-model="visible" :title="`编辑模型配置：${config?.label ?? ''}`" width="560px" @closed="form.api_key = ''">
     <el-form v-if="config" ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSave">
       <el-form-item label="接口地址" prop="base_url">
-        <el-input v-model="form.base_url" placeholder="https://" autocomplete="off" />
+        <el-input v-model="form.base_url" :placeholder="baseUrlPlaceholder" autocomplete="off" />
       </el-form-item>
       <el-form-item label="模型名称" prop="model">
         <el-input v-model="form.model" autocomplete="off" />

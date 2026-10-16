@@ -47,6 +47,26 @@ function toApiError(status: number, body: ErrorBody | null): ApiError {
   return new ApiError(status, 'http_error', `请求失败（${status}）`)
 }
 
+type AuthFailureHandler = (e: ApiError, path: string) => void
+
+let authFailureHandler: AuthFailureHandler | null = null
+
+/**
+ * 登录状态在使用中失效时的回调（例如会话过期、账号被停用、被取消管理员）。
+ * 由 main.ts 注册，负责更新登录状态并跳到合适的页面；传 null 取消。
+ */
+export function setAuthFailureHandler(fn: AuthFailureHandler | null): void {
+  authFailureHandler = fn
+}
+
+// 这几个接口自己处理 401/403（登录失败、注册关闭、查询登录状态），不触发回调
+const AUTH_FLOW_PATHS = new Set(['/api/auth/login', '/api/auth/register', '/api/auth/me'])
+const ACCOUNT_403_CODES = new Set(['account_pending', 'account_rejected', 'account_disabled', 'forbidden'])
+
+function isAuthFailure(e: ApiError): boolean {
+  return (e.status === 401 && e.code === 'not_authenticated') || (e.status === 403 && ACCOUNT_403_CODES.has(e.code))
+}
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: 'same-origin' }
   if (body !== undefined) {
@@ -76,7 +96,12 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   }
 
   if (!res.ok) {
-    throw toApiError(res.status, data as ErrorBody | null)
+    const err = toApiError(res.status, data as ErrorBody | null)
+    if (authFailureHandler && isAuthFailure(err) && !AUTH_FLOW_PATHS.has(path)) {
+      authFailureHandler(err, path)
+    }
+    // 回调只负责跳转；调用方照常拿到错误
+    throw err
   }
   return data as T
 }

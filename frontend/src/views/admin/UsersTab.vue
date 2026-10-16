@@ -15,6 +15,7 @@ import {
   type UserStatus,
 } from '../../api/admin'
 import { errorText } from '../../api/http'
+import { useAuthStore } from '../../stores/auth'
 import { PASSWORD_HINT, confirmRules, passwordRules } from '../authRules'
 
 const ROLE_TEXT: Record<UserRole, string> = { teacher: '老师', admin: '管理员' }
@@ -24,6 +25,12 @@ const STATUS_TEXT: Record<UserStatus, string> = {
   rejected: '已拒绝',
   disabled: '已停用',
 }
+// 对自己的账号操作时额外提醒（停用、重置密码会让自己的会话失效）
+const SELF_RELOGIN_NOTE = '这是你自己的账号，操作后你需要重新登录'
+
+const auth = useAuthStore()
+const isSelf = (u: UserOut) => u.id === auth.user?.id
+
 const STATUS_FILTERS: { value: UserStatus | ''; label: string }[] = [
   { value: '', label: '全部状态' },
   { value: 'pending', label: '待审核' },
@@ -150,9 +157,15 @@ function actionsFor(u: UserOut): RowAction[] {
 
 /** 需要先确认的操作：返回确认框文字；不需要确认返回 null */
 function confirmText(a: RowAction, u: UserOut): string | null {
-  if (a.kind === 'status' && a.action === 'disable') return `停用后「${u.username}」将不能再使用系统，已有的视频会保留。确定停用吗？`
+  if (a.kind === 'status' && a.action === 'disable') {
+    const self = isSelf(u) ? `${SELF_RELOGIN_NOTE}。` : ''
+    return `停用后「${u.username}」将不能再使用系统，已有的视频会保留。${self}确定停用吗？`
+  }
   if (a.kind === 'status' && a.action === 'reject') return `确定拒绝「${u.username}」的注册申请吗？`
-  if (a.kind === 'role' && a.role === 'teacher') return `取消后「${u.username}」将不能再进入管理后台。确定取消管理员吗？`
+  if (a.kind === 'role' && a.role === 'teacher') {
+    if (isSelf(u)) return '这是你自己的账号，取消后你将失去管理后台权限。确定取消管理员吗？'
+    return `取消后「${u.username}」将不能再进入管理后台。确定取消管理员吗？`
+  }
   return null
 }
 
@@ -313,6 +326,7 @@ function onPasswordClosed() {
     />
 
     <el-dialog v-model="pw.open" :title="`重置密码：${pw.user?.username ?? ''}`" width="420px" @closed="onPasswordClosed">
+      <p v-if="pw.user && isSelf(pw.user)" class="self-note">{{ SELF_RELOGIN_NOTE }}</p>
       <el-form ref="pwFormRef" :model="pw" :rules="pwRules" label-position="top" @submit.prevent="submitPassword">
         <el-form-item label="新密码" prop="password">
           <el-input v-model="pw.password" type="password" autocomplete="new-password" aria-describedby="reset-password-hint" />
@@ -399,6 +413,12 @@ function onPasswordClosed() {
 .pager {
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.self-note {
+  margin: 0 0 12px;
+  color: var(--ev-color-danger);
+  font-weight: 600;
 }
 
 .hint {

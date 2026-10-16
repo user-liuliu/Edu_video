@@ -101,6 +101,8 @@ async def reset_password(db: AsyncSession, target_id: uuid.UUID, new_password: s
 async def set_role(db: AsyncSession, target_id: uuid.UUID, role: UserRole) -> User:
     await _lock_active_admins(db)
     user = await _lock_target(db, target_id)
+    if user.status != UserStatus.active:
+        raise api_error(409, "invalid_transition", "只有正常状态的账号可以修改角色")
     user.role = role
     await _ensure_admin_remains(db)
     await db.commit()

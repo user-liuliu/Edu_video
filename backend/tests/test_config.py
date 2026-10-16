@@ -27,3 +27,12 @@ def test_valid_secrets_accepted():
 def test_blank_or_short_secret_rejected(field, value):
     with pytest.raises(ValidationError):
         _settings(**{field: value})
+
+
+def test_malformed_master_key_rejected():
+    """长度够但不是合法的 Fernet key：启动时就报错，提示里不带 key 本身。"""
+    bad = "x" * 44
+    with pytest.raises(ValidationError) as exc:
+        _settings(master_key=bad)
+    assert "MASTER_KEY" in str(exc.value)
+    assert bad not in str(exc.value)

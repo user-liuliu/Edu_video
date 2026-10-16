@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from cryptography.fernet import Fernet
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,7 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """从环境变量读取配置（本地用 `uv run --env-file ../.env` 注入 .env）。"""
 
-    model_config = SettingsConfigDict(extra="ignore")
+    # hide_input_in_errors：配置校验失败时错误信息里不带原值（主密钥、会话密钥会出现在容器日志里）
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
     database_url: str
     test_database_url: str = ""
@@ -25,6 +27,16 @@ class Settings(BaseSettings):
     def _not_blank(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("不能为空白")
+        return v
+
+    @field_validator("master_key")
+    @classmethod
+    def _valid_fernet_key(cls, v: str) -> str:
+        # 格式不对时 SecretBox 会在启动后才报错，容器反复重启；这里提前给出明确提示（不带 key 本身）
+        try:
+            Fernet(v)
+        except (ValueError, TypeError):
+            raise ValueError("MASTER_KEY 不是有效的 Fernet key，请用 .env.example 中的命令重新生成") from None
         return v
 
 

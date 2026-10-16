@@ -83,11 +83,15 @@ class ModelConfigUpdate(BaseModel):
 
     @field_validator("api_key")
     @classmethod
-    def _blank_key_is_none(cls, v: str | None) -> str | None:
+    def _check_api_key(cls, v: str | None) -> str | None:
         # 复制粘贴常带首尾空白；去掉后为空就当作没填
         if v is None:
             return None
-        return v.strip() or None
+        v = v.strip()
+        # 非 ASCII 字符放进请求头会直接出错；多半是复制时混进了中文或全角字符。提示里不带 key
+        if not all(" " <= c <= "~" for c in v):
+            raise ValueError("Key 只能包含英文字母、数字和符号，请检查是否混入了中文或全角字符")
+        return v or None
 
 
 @dataclass
