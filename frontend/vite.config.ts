@@ -25,5 +25,13 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['tests/**/*.spec.ts'],
+    server: {
+      deps: {
+        // Element Plus 的 ES 版本 `import AsyncValidator from 'async-validator'`（CJS 包）。
+        // 交给 Node 原生 ESM 加载时拿到的是模块对象而不是类，表单校验会静默通过；
+        // 让 Vitest 转换 Element Plus，按打包器的方式处理默认导出（浏览器构建本来就没有这个问题）
+        inline: ['element-plus'],
+      },
+    },
   },
 })

@@ -12,6 +12,25 @@ export class ApiError extends Error {
   }
 }
 
+const CJK = /[\u4e00-\u9fff]/
+
+/**
+ * 把任意错误转成给老师看的中文提示。界面上显示服务端错误一律经过这里。
+ * - 422 validation_error：自定义校验器给的中文消息原样显示（去掉 pydantic 加的 "Value error, " 前缀）；
+ *   pydantic 自带的英文消息换成通用中文提示
+ * - 其他 ApiError：显示后端给的 message
+ * - 其他异常：通用提示
+ */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.code === 'validation_error') {
+      return CJK.test(e.message) ? e.message.replace(/^Value error, /, '') : '提交的内容不符合要求，请检查后重试'
+    }
+    return e.message
+  }
+  return '操作失败，请稍后重试'
+}
+
 type ValidationItem = { type?: string; loc?: unknown[]; msg?: string }
 type ErrorBody = { detail?: { code?: string; message?: string } | ValidationItem[] | string }
 

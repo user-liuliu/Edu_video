@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { ApiError, request } from '../src/api/http'
+import { ApiError, errorText, request } from '../src/api/http'
 
 function mockFetch(status: number, body?: unknown) {
   const fetchMock = vi.fn(async () =>
@@ -44,4 +44,24 @@ test('sends JSON body with same-origin credentials', async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: 'u', password: 'p' }),
   })
+})
+
+test('errorText: validation_error keeps Chinese messages (without the pydantic prefix), hides English ones', () => {
+  expect(errorText(new ApiError(422, 'validation_error', 'Value error, 用户名只能包含字母、数字、下划线和汉字'))).toBe(
+    '用户名只能包含字母、数字、下划线和汉字',
+  )
+  expect(errorText(new ApiError(422, 'validation_error', 'String should have at least 8 characters'))).toBe(
+    '提交的内容不符合要求，请检查后重试',
+  )
+})
+
+test('errorText: other ApiError → its message', () => {
+  expect(errorText(new ApiError(429, 'login_locked', '登录失败次数过多，请 15 分钟后再试'))).toBe(
+    '登录失败次数过多，请 15 分钟后再试',
+  )
+})
+
+test('errorText: anything else → generic message', () => {
+  expect(errorText(new TypeError('boom'))).toBe('操作失败，请稍后重试')
+  expect(errorText(undefined)).toBe('操作失败，请稍后重试')
 })
