@@ -14,6 +14,7 @@ from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
 from app.errors import validation_error_handler
+from app.http_client import create_http
 from app.model_configs import router as model_configs_router
 from app.redis_client import create_redis
 from app.security import SecretBox
@@ -22,6 +23,7 @@ from app.security import SecretBox
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
+    await app.state.http.aclose()
     await app.state.redis.aclose()
     await app.state.engine.dispose()
 
@@ -37,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = create_sessionmaker(app.state.engine)
     app.state.redis = create_redis(settings.redis_url)
     app.state.secret_box = SecretBox(settings.master_key)
+    app.state.http = create_http()
 
     app.add_middleware(
         SessionMiddleware,

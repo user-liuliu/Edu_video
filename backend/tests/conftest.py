@@ -52,6 +52,7 @@ async def app(settings):
         return UserOut.model_validate(user)
 
     yield app
+    await app.state.http.aclose()
     await app.state.redis.aclose()
     await app.state.engine.dispose()
 
