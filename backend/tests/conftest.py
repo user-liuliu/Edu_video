@@ -104,3 +104,32 @@ def make_user(db):
         return user
 
     return _make_user
+
+
+@pytest.fixture
+async def make_client():
+    """新建独立的 AsyncClient（各自保存 cookie），用来同时模拟多个已登录用户；测试结束时统一关闭。"""
+    clients: list[httpx.AsyncClient] = []
+
+    def _make_client(app) -> httpx.AsyncClient:
+        c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+        clients.append(c)
+        return c
+
+    yield _make_client
+    for c in clients:
+        await c.aclose()
+
+
+@pytest.fixture
+async def admin_user(make_user) -> User:
+    """一个正常状态的管理员：admin1 / pass1234。"""
+    return await make_user("admin1", role="admin")
+
+
+@pytest.fixture
+async def admin_client(app, make_client, admin_user) -> httpx.AsyncClient:
+    """已用 admin_user 登录的独立 client。"""
+    c = make_client(app)
+    await login(c, "admin1", "pass1234")
+    return c

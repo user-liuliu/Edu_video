@@ -7,6 +7,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.admin import settings_router as admin_settings_router
+from app.admin import users_router as admin_users_router
 from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
@@ -45,5 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "db": True}
 
     app.include_router(auth_router)
+    app.include_router(admin_users_router)
+    app.include_router(admin_settings_router)
 
     return app
