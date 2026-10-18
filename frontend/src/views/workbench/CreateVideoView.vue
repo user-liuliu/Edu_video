@@ -16,7 +16,7 @@ const cacheKey=computed(()=>`project:${String(route.params.id??'new')}`)
 const hasOutline=computed(()=>['outline_ready','outline_confirmed'].includes(project.value?.status??''))
 const fields=computed(()=>config.value?.fields.filter(f=>!['prompt','materials'].includes(f.key))??[])
 function options(f:PublicField){return f.options.filter(o=>!o.subjects?.length||o.subjects.includes(String(values.value.subject)))}
-watch(()=>values.value.subject,(subject,previous)=>{if(previous===undefined)return;const edition=config.value?.fields.find(f=>f.key==='textbook_edition');if(edition)values.value.textbook_edition=edition.default_by_subject[String(subject)]??edition.default})
+watch(()=>values.value.subject,(subject,previous)=>{if(loading.value||previous===undefined)return;const edition=config.value?.fields.find(f=>f.key==='textbook_edition');if(edition)values.value.textbook_edition=edition.default_by_subject[String(subject)]??edition.default})
 watch([prompt,title,values],()=>{if(!loading.value)dirty.value=true},{deep:true})
 function isDocumentReload(){const entry=performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming|undefined;return entry?.type==='reload'}
 async function load(){loading.value=true;try{if(!route.params.id&&isDocumentReload()){clearVideoDraft(cacheKey.value);await clearPendingFiles(cacheKey.value)}config.value=await getFormConfig();values.value=Object.fromEntries(config.value.fields.map(f=>[f.key,f.default]));if(route.params.id){project.value=await getProject(String(route.params.id));prompt.value=project.value.prompt;title.value=project.value.title;Object.assign(values.value,project.value.form_values)}pendingFiles.value=await readPendingFiles(cacheKey.value)}catch(e){error.value=errorText(e)}finally{loading.value=false}}
@@ -32,7 +32,7 @@ onBeforeUnmount(()=>{void writePendingFiles(cacheKey.value,pendingFiles.value)})
 <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon/>
 <el-alert v-if="config&&!config.system_available" title="系统暂不可用，请联系管理员。你仍可以保存草稿。" type="warning" :closable="false"/>
 <el-alert v-if="project?.needs_regeneration" title="需求或素材已变化，旧大纲已保留，请重新生成后再确认。" type="warning" :closable="false"/>
-<el-form v-if="config" label-position="top" class="creation-form" @submit.prevent="save()">
+<el-form v-if="config" :disabled="saving" label-position="top" class="creation-form" @submit.prevent="save()">
 <el-form-item label="项目名称" required><el-input v-model="title" data-testid="project-title" maxlength="200" placeholder="请输入项目名称"/></el-form-item>
 <el-form-item :label="config.fields.find(f=>f.key==='prompt')?.label??'想讲什么'" required><el-input v-model="prompt" type="textarea" :rows="5" maxlength="20000" show-word-limit placeholder="例如：给初三学生讲解二次函数，用投篮的例子帮助理解抛物线。"/></el-form-item>
 <MaterialUpload v-if="config.fields.some(f=>f.key==='materials')" :project-id="project?.id" :pending-files="pendingFiles" :saving="saving" :refresh-token="materialsRefreshToken" @pending-change="files=>{pendingFiles=files;void writePendingFiles(cacheKey,files)}" @changed="refreshProject"/>

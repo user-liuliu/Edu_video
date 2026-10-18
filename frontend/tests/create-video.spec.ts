@@ -220,3 +220,82 @@ test('submits a durable outline task without waiting for material parsing in the
   expect(router.currentRoute.value.name).toBe('project-outline')
   w.unmount()
 })
+
+
+test('restoring a draft preserves a non-default textbook and later subject changes apply defaults', async () => {
+  const calls: {url: string; init?: RequestInit}[] = []
+  const form = {system_available:true,form_version:'v1',fields:[
+    {key:'prompt',label:'想讲什么',default:null,options:[],default_by_subject:{}},
+    {key:'subject',label:'科目',default:'数学',options:[{value:'数学',label:'数学',subjects:null},{value:'物理',label:'物理',subjects:null}],default_by_subject:{}},
+    {key:'textbook_edition',label:'教材版本',default:'数学默认版',options:[
+      {value:'数学默认版',label:'数学默认版',subjects:['数学']},
+      {value:'物理默认版',label:'物理默认版',subjects:['物理']},
+      {value:'物理自选版',label:'物理自选版',subjects:['物理']},
+    ],default_by_subject:{数学:'数学默认版',物理:'物理默认版'}},
+  ]}
+  const saved={id:'p1',revision:1,title:'串联电路',prompt:'讲解串联电路',status:'draft',form_values:{subject:'物理',textbook_edition:'物理自选版'}}
+  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+    calls.push({url,init})
+    return new Response(JSON.stringify(url.includes('/config/form')?form:init?.method==='PATCH'?{...saved,...JSON.parse(String(init.body)),revision:2}:saved))
+  }))
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/edit',component:CreateVideoView}]})
+  await router.push('/projects/p1/edit')
+  const w=mount(CreateVideoView,{global:{plugins:[router,ElementPlus]}})
+  try {
+    await flushPromises()
+    expect(w.findAllComponents({name:'ElSelect'})[1]!.props('modelValue')).toBe('物理自选版')
+    await w.get('[data-testid="save-draft"]').trigger('click');await flushPromises()
+    const request=calls.find(call=>call.init?.method==='PATCH')
+    expect(JSON.parse(String(request?.init?.body)).form_values).toMatchObject({subject:'物理',textbook_edition:'物理自选版'})
+    w.findAllComponents({name:'ElSelect'})[0]!.vm.$emit('update:modelValue','数学')
+    await flushPromises()
+    expect(w.findAllComponents({name:'ElSelect'})[1]!.props('modelValue')).toBe('数学默认版')
+  } finally { w.unmount() }
+})
+
+test('save and material upload keep all requirement controls disabled until persistence completes', async () => {
+  let finishSave!: (response: Response) => void
+  let finishUpload!: (response: Response) => void
+  const saveResponse=new Promise<Response>(resolve=>{finishSave=resolve})
+  const uploadResponse=new Promise<Response>(resolve=>{finishUpload=resolve})
+  const calls: string[]=[]
+  const saved={id:'p1',revision:1,title:'项目',prompt:'原始需求',status:'draft',form_values:{subject:'数学'}}
+  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+    calls.push(url)
+    if(url==='/api/projects'&&init?.method==='POST')return saveResponse
+    if(url.includes('/materials')&&init?.method==='POST')return uploadResponse
+    return new Response(JSON.stringify(url.includes('/config/form')?{system_available:true,form_version:'v1',fields:[
+      {key:'prompt',label:'想讲什么',default:null,options:[],default_by_subject:{}},
+      {key:'subject',label:'科目',default:'数学',options:[{value:'数学',label:'数学',subjects:null}],default_by_subject:{}},
+      {key:'web_search',label:'联网搜索',default:false,options:[],default_by_subject:{}},
+      {key:'materials',label:'参考素材',default:null,options:[],default_by_subject:{}},
+    ]}:url.includes('/materials')?[]:saved))
+  }))
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/new',component:CreateVideoView}]})
+  await router.push('/projects/new')
+  const w=mount(CreateVideoView,{global:{plugins:[router,ElementPlus]}})
+  try {
+    await flushPromises()
+    await w.get('input[data-testid="project-title"]').setValue('项目')
+    await w.get('textarea').setValue('原始需求')
+    const fileInput=w.get('input[type="file"]')
+    Object.defineProperty(fileInput.element,'files',{value:[new File(['pdf'],'课件.pdf',{type:'application/pdf'})],configurable:true})
+    await fileInput.trigger('change');await flushPromises()
+    await w.get('[data-testid="save-draft"]').trigger('click');await flushPromises()
+    function expectLocked(disabled: boolean) {
+      expect((w.get('input[data-testid="project-title"]').element as HTMLInputElement).disabled).toBe(disabled)
+      expect((w.get('textarea').element as HTMLTextAreaElement).disabled).toBe(disabled)
+      expect(w.getComponent({name:'ElSelect'}).find('.el-select__wrapper').classes().includes('is-disabled')).toBe(disabled)
+      expect((w.get('[role="switch"]').element).getAttribute('aria-disabled')==='true').toBe(disabled)
+      expect((w.get('input[type="file"]').element as HTMLInputElement).disabled).toBe(disabled)
+    }
+    expectLocked(true)
+    finishSave(new Response(JSON.stringify(saved),{status:201}));await flushPromises()
+    expect(calls.some(url=>url.includes('/materials?defer_parse=true'))).toBe(true)
+    expectLocked(true)
+    finishUpload(new Response(JSON.stringify({id:'m1',filename:'课件.pdf',size:3,status:'stored'})));await flushPromises()
+    expectLocked(false)
+  } finally {
+    finishSave(new Response(JSON.stringify(saved)));finishUpload(new Response('{}'));await flushPromises();w.unmount()
+  }
+})

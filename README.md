@@ -50,7 +50,7 @@ docker compose exec -T worker celery -A app.jobs.celery_app:celery_app inspect p
 
 真实模型质量、联网额度和长文档效果需教师从界面提交任务验收；开发检查不读取或测试生产 `model_configs`。设计与计划见 `docs/superpowers/specs/2026-10-16-edu-video-agent-design.md` 和 `docs/superpowers/plans/2026-10-16-outline-agent.md`。
 
-2026-10-18 合并前验证：后端 **230 passed**，前端 **16 个文件、148 passed**，TypeScript 检查与 Vite 生产构建通过，`git diff --cached --check` 通过。
+2026-10-18 合并前验证：后端 **230 passed**，前端 **16 个文件、150 passed**，TypeScript 检查与 Vite 生产构建通过，`git diff --cached --check` 通过。
 
 ## 第二阶段交付与验收边界
 
