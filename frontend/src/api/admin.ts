@@ -14,6 +14,7 @@ export type UserOut = {
   status: UserStatus
   /** ISO 8601 时间 */
   created_at: string
+  video_count?: number
 }
 
 export type UserList = { items: UserOut[]; total: number }

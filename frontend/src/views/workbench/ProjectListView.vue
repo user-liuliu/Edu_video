@@ -1,0 +1,15 @@
+<script setup lang="ts">
+import { ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
+import { listProjects, deleteProject, type Project } from '../../api/projects'
+import { errorText } from '../../api/http'
+const route=useRoute(),router=useRouter(),items=ref<Project[]>([]),total=ref(0),page=ref(1),error=ref(''),loading=ref(false)
+const labels:Record<string,string>={draft:'草稿',outlining:'正在生成大纲',outline_ready:'大纲待确认',outline_confirmed:'大纲已确认',failed:'任务失败'}
+const isDrafts=()=>route.name==='project-drafts'
+async function load(){loading.value=true;error.value='';try{const data=await listProjects(isDrafts()?'drafts':'completed',page.value);items.value=data.items;total.value=data.total}catch(e){error.value=errorText(e)}finally{loading.value=false}}
+async function remove(p:Project){try{await ElMessageBox.confirm('确定删除“'+p.title+'”？','删除项目',{confirmButtonText:'删除',cancelButtonText:'取消',type:'warning'})}catch{return}try{await deleteProject(p);await load()}catch(e){error.value=errorText(e)}}
+onMounted(load);watch(()=>route.name,()=>{page.value=1;load()})
+</script>
+<template><section v-loading="loading"><div class="heading"><div><h1>{{isDrafts()?'草稿箱':'我的视频'}}</h1><p class="ev-muted">{{isDrafts()?'未完成的视频会保存在这里，之后可以继续编辑。':'已完成的视频会显示在这里。'}}</p></div></div><el-alert v-if="error" :title="error" type="error" :closable="false"/><el-empty v-if="!loading&&!items.length" :description="isDrafts()?'还没有未完成的视频草稿':'还没有已完成的视频'"/><div class="projects"><article v-for="p in items" :key="p.id"><span class="status">{{labels[p.status]??p.status}}</span><h2>{{p.title}}</h2><p class="summary">{{p.prompt}}</p><small class="ev-muted">更新于 {{new Date(p.updated_at).toLocaleString('zh-CN')}}</small><div class="actions"><el-button @click="router.push({name:p.status==='draft'?'project-edit':'project-outline',params:{id:p.id}})">{{isDrafts()?'继续编辑':'查看视频'}}</el-button><el-button text type="danger" @click="remove(p)">删除</el-button></div></article></div><el-pagination v-if="total>20" v-model:current-page="page" :total="total" :page-size="20" layout="prev,pager,next" @current-change="load"/></section></template>
+<style scoped>.heading{display:flex;justify-content:space-between;gap:20px;margin-bottom:24px}h1{font:32px var(--ev-font-display);margin:0}.projects{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:18px}.projects article{background:var(--ev-color-surface);border:1px solid var(--ev-color-border);border-radius:var(--ev-radius);padding:22px;min-width:0}h2{font-size:19px;overflow-wrap:anywhere}.summary{color:var(--ev-color-muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.status{font-size:12px;color:var(--ev-color-primary-dark)}.actions{margin-top:18px}</style>

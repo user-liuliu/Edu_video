@@ -283,6 +283,7 @@ function onPasswordClosed() {
             <th scope="col">角色</th>
             <th scope="col">状态</th>
             <th scope="col">注册时间</th>
+            <th scope="col">视频项目数</th>
             <th scope="col">操作</th>
           </tr>
         </thead>
@@ -292,6 +293,7 @@ function onPasswordClosed() {
             <td>{{ ROLE_TEXT[u.role] }}</td>
             <td><span :class="['status', `status-${u.status}`]">{{ STATUS_TEXT[u.status] }}</span></td>
             <td class="time">{{ formatTime(u.created_at) }}</td>
+            <td>{{ u.video_count ?? 0 }}</td>
             <td class="actions">
               <el-button
                 v-for="a in actionsFor(u)"
@@ -307,7 +309,7 @@ function onPasswordClosed() {
             </td>
           </tr>
           <tr v-if="!loading && items.length === 0">
-            <td colspan="5" class="empty ev-muted">没有符合条件的用户</td>
+            <td colspan="6" class="empty ev-muted">没有符合条件的用户</td>
           </tr>
         </tbody>
       </table>

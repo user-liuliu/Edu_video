@@ -17,6 +17,11 @@ from app.errors import validation_error_handler
 from app.http_client import create_http
 from app.model_configs import router as model_configs_router
 from app.public import router as public_router
+from app.projects import router as projects_router
+from app.materials.router import router as materials_router
+from app.jobs.service import router as jobs_router
+from app.outline.router import router as outline_router
+from app.preferences.router import router as preferences_router
 from app.redis_client import create_redis
 from app.security import SecretBox
 
@@ -61,5 +66,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_settings_router)
     app.include_router(model_configs_router)
     app.include_router(public_router)
+    app.include_router(projects_router)
+    app.include_router(materials_router)
+    app.include_router(jobs_router)
+    app.include_router(outline_router)
+    app.include_router(preferences_router)
 
     return app

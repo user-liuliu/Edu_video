@@ -1,38 +1,24 @@
-<!-- 管理后台：三个选项卡分别对应三个子路由，当前选项卡跟着路由走 -->
-<script setup lang="ts">
-import type { TabPaneName } from 'element-plus'
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-
-const TABS = [
-  { name: 'admin-page-config', label: '页面配置' },
-  { name: 'admin-model-config', label: '模型配置' },
-  { name: 'admin-users', label: '用户管理' },
-] as const
-
-const route = useRoute()
-const router = useRouter()
-const active = computed(() => String(route.name ?? ''))
-
-function onChange(name: TabPaneName) {
-  if (name !== route.name) void router.push({ name: String(name) })
-}
-</script>
+<!-- 管理后台子页面由 AppLayout 的侧边栏切换。 -->
 
 <template>
-  <!-- AppLayout 已经提供 main；这里不再加 main / h1，各选项卡用 h2 / h3 作为分节标题 -->
   <section class="admin" aria-label="管理后台">
-    <el-tabs :model-value="active" @tab-change="onChange">
-      <el-tab-pane v-for="tab in TABS" :key="tab.name" :name="tab.name" :label="tab.label">
-        <!-- 只渲染当前路由对应的选项卡，切换时重新加载数据 -->
-        <RouterView v-if="active === tab.name" />
-      </el-tab-pane>
-    </el-tabs>
+    <div class="admin-heading">
+      <p class="eyebrow">管理员后台</p>
+      <h1>系统配置</h1>
+      <p class="ev-muted">页面配置默认展示，模型和用户管理从左侧切换。</p>
+    </div>
+    <RouterView />
   </section>
 </template>
 
 <style scoped>
-.admin :deep(.el-tabs__item) {
-  font-size: 15px;
+.admin { min-width: 0; }
+.admin-heading { margin-bottom: 24px; }
+.admin-heading h1 { margin-top: 4px; font-size: 28px; letter-spacing: -.03em; }
+.admin-heading .ev-muted { margin-top: 7px; }
+.eyebrow { margin: 0; color: var(--ev-color-primary-dark); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+
+@media (max-width: 720px) {
+  .admin-heading h1 { font-size: 24px; }
 }
 </style>

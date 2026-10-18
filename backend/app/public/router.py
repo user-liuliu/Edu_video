@@ -15,6 +15,7 @@ from app.model_configs import list_voices, resolve, system_available
 from app.purposes import Purpose
 from app.security import SecretBox, get_secret_box
 from app.settings_store import FieldKey, FieldOption, get_form_fields
+from app.settings_store.form_values import form_version
 
 router = APIRouter(prefix="/api/config", tags=["public"])
 
@@ -31,6 +32,7 @@ class PublicField(BaseModel):
 
 
 class PublicFormConfig(BaseModel):
+    form_version: str
     # 必需的模型都配好了才能生成视频；老师端据此提示“系统暂不可用”
     system_available: bool
     fields: list[PublicField]
@@ -64,7 +66,7 @@ async def build_public_form(db: AsyncSession, box: SecretBox) -> PublicFormConfi
                 default_by_subject=f.default_by_subject,
             )
         )
-    return PublicFormConfig(system_available=await system_available(db, box), fields=fields)
+    return PublicFormConfig(form_version=form_version(cfg, voices, web_search_ready), system_available=await system_available(db, box), fields=fields)
 
 
 @router.get("/form", dependencies=[Depends(require_active_user)])

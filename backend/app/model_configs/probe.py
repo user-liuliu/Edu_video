@@ -86,6 +86,10 @@ def _missing_v1(base_url: str) -> bool:
 
 
 def _http_error(resp: httpx.Response, purpose: Purpose, cfg: ResolvedConfig) -> ProbeResult:
+    if purpose == Purpose.tts:
+        permission_error = _tts_permission_error(resp, cfg.api_key)
+        if permission_error is not None:
+            return permission_error
     preview = _preview(resp.text, cfg.api_key)
     message = f"HTTP {resp.status_code}：{preview}" if preview else f"HTTP {resp.status_code}"
     # 只提示，不自动补 /v1：有的服务地址本来就不带 /v1
@@ -94,7 +98,26 @@ def _http_error(resp: httpx.Response, purpose: Purpose, cfg: ResolvedConfig) -> 
     return ProbeResult(False, message)
 
 
+def _tts_permission_error(resp: httpx.Response, secret: str) -> ProbeResult | None:
+    body = _json(resp)
+    if not isinstance(body, dict) or body.get("code") != 45000030:
+        return None
+    detail = str(body.get("message") or "")
+    if "requested resource not granted" not in detail.lower():
+        return None
+    return ProbeResult(
+        False,
+        "配音资源未授权（45000030）：当前凭据没有此音频生成资源的访问权限。"
+        "请在火山引擎新版语音控制台检查服务是否开通、API Key 所属项目是否有该资源权限；"
+        "本接口使用新版 API Key，旧版 Access Token 不能直接替代。"
+        f"服务端详情：{_preview(detail, secret)}",
+    )
+
+
 def _check_tts(resp: httpx.Response, secret: str) -> ProbeResult:
+    permission_error = _tts_permission_error(resp, secret)
+    if permission_error is not None:
+        return permission_error
     body = _json(resp)
     if not isinstance(body, dict):
         # 不是 JSON（例如直接返回音频）也算成功
@@ -124,11 +147,18 @@ async def _probe(http: httpx.AsyncClient, cfg: ResolvedConfig) -> ProbeResult:
         if voice is None:
             return ProbeResult(False, "请先配置至少一个音色")
         method, path, headers = "POST", "api/v3/tts/create", {"X-Api-Key": cfg.api_key}
-        body = {"model": cfg.model, "text_prompt": "测试", "speaker": voice.speaker_id}
+        body = {
+            "model": cfg.model,
+            "text_prompt": "测试",
+            "references": [{"speaker": voice.speaker_id}],
+        }
     else:
         raise ProbeUnsupported(purpose.value)
 
     url = join_url(cfg.base_url, path)
+    # 配音允许填服务根地址或完整端点；完整地址不能再次追加路径。
+    if purpose == Purpose.tts and urlsplit(cfg.base_url).path.rstrip("/").endswith("/" + path):
+        url = cfg.base_url.rstrip("/")
     # 构造请求也放进 try：地址或请求头不合法时 build_request 本身就会抛错
     try:
         request = http.build_request(method, url, headers=headers, json=body)
@@ -153,7 +183,14 @@ async def _probe(http: httpx.AsyncClient, cfg: ResolvedConfig) -> ProbeResult:
 
 
 async def run_probe(http: httpx.AsyncClient, cfg: ResolvedConfig) -> ProbeResult:
-    """测试一项配置。web_search 抛 ProbeUnsupported；其余情况都返回 ProbeResult，不抛异常。"""
+    """按实际协议测试配置，搜索使用同一 Tavily 适配器。"""
+    if cfg.purpose == Purpose.web_search:
+        from app.search.tavily import search, SearchError
+        try:
+            await search('教学资料', cfg, http)
+            return ProbeResult(True, OK_MESSAGE)
+        except SearchError as exc:
+            return ProbeResult(False, str(exc))
     try:
         result = await _probe(http, cfg)
     except httpx.InvalidURL:

@@ -1,9 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
+import { createPinia, setActivePinia } from 'pinia'
 import { expect, test } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import type { FormFieldsConfig } from '../src/api/admin'
 import AdminLayout from '../src/layouts/AdminLayout.vue'
+import AppLayout from '../src/layouts/AppLayout.vue'
+import { useAuthStore } from '../src/stores/auth'
 import { addOption, cloneConfig, removeOption, setDefaultsBySubject, updateOption } from '../src/views/admin/formFieldsEdit'
 
 // ---------- AdminLayout ----------
@@ -13,6 +16,7 @@ function makeRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/projects', name: 'project-list', component: tab('教师工作台') },
       {
         path: '/admin',
         name: 'admin',
@@ -28,25 +32,48 @@ function makeRouter() {
   })
 }
 
-test('admin layout: three tabs follow the child route', async () => {
+test('admin layout: renders child pages without duplicating sidebar navigation', async () => {
   const router = makeRouter()
   await router.push('/admin')
   await router.isReady()
   const w = mount({ template: '<RouterView />' }, { global: { plugins: [router, ElementPlus] } })
   await flushPromises()
 
-  const tabs = w.findAll('[role="tab"]')
-  expect(tabs.map((t) => t.text())).toEqual(['页面配置', '模型配置', '用户管理'])
-  expect(tabs[0].attributes('aria-selected')).toBe('true')
+  expect(router.currentRoute.value.name).toBe('admin-page-config')
+  expect(w.find('[role="tablist"]').exists()).toBe(false)
+  expect(w.findAll('[role="tab"]')).toHaveLength(0)
   expect(w.findAll('.tab-body').map((b) => b.text())).toEqual(['页面配置内容'])
   // 不重复 AppLayout 的 main
   expect(w.find('main').exists()).toBe(false)
 
-  await tabs[2].trigger('click')
+  await router.push({ name: 'admin-users' })
   await flushPromises()
   expect(router.currentRoute.value.name).toBe('admin-users')
   expect(w.findAll('.tab-body').map((b) => b.text())).toEqual(['用户管理内容'])
-  expect(w.findAll('[role="tab"]')[2].attributes('aria-selected')).toBe('true')
+  w.unmount()
+})
+
+test('admin sidebar is the only navigation and switches all three pages', async () => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useAuthStore().user = { id: '1', username: 'admin', role: 'admin', status: 'active' }
+  const router = makeRouter()
+  router.addRoute({ path: '/', name: 'home', component: { template: '<div />' } })
+  router.addRoute({ path: '/login', name: 'login', component: { template: '<div />' } })
+  await router.push('/admin')
+  await router.isReady()
+  const w = mount(AppLayout, { global: { plugins: [pinia, router, ElementPlus] } })
+  await flushPromises()
+  const links = w.findAll('[aria-label="管理员导航"] a')
+  expect(links.map((link) => link.text())).toEqual(['页面配置', '模型配置', '用户管理'])
+  expect(w.findAll('[role="tab"]')).toHaveLength(0)
+  for (const [index, label] of ['页面配置', '模型配置', '用户管理'].entries()) {
+    await links[index]!.trigger('click')
+    await flushPromises()
+    expect(w.findAll('.tab-body').map((body) => body.text())).toEqual([`${label}内容`])
+    expect(w.findAll('[aria-label="管理员导航"] a.active').map((link) => link.text())).toEqual([label])
+  }
+  w.unmount()
 })
 
 // ---------- 页面配置的编辑操作 ----------

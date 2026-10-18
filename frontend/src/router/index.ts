@@ -22,7 +22,17 @@ export const router = createRouter({
       path: '/',
       component: AppLayout,
       children: [
-        { path: '', name: 'home', component: () => import('../views/HomeView.vue') },
+        { path: 'projects/new', name: 'project-create', component: () => import('../views/workbench/CreateVideoView.vue') },
+        { path: 'projects/:id/edit', name: 'project-edit', component: () => import('../views/workbench/CreateVideoView.vue') },
+        { path: 'projects/:id/outline', name: 'project-outline', component: () => import('../views/workbench/OutlineView.vue') },
+        { path: 'projects', name: 'project-list', component: () => import('../views/workbench/ProjectListView.vue') },
+        { path: 'drafts', name: 'project-drafts', component: () => import('../views/workbench/ProjectListView.vue') },
+        { path: 'preferences', name: 'preferences', component: () => import('../views/workbench/PreferencesView.vue') },
+        { path: '', name: 'home', component: () => import('../views/HomeView.vue'), beforeEnter: to => {
+          const destinations:Record<string,string>={make:'project-create',videos:'project-list',drafts:'project-drafts',memory:'preferences'}
+          const section=String(to.query.section??'videos')
+          if (section!=='account' && useAuthStore().user?.role!=='admin') return {name:destinations[section]??'project-list'}
+        } },
         {
           path: 'admin',
           name: 'admin',

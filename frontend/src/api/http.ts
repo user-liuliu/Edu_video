@@ -28,6 +28,7 @@ export function errorText(e: unknown): string {
     }
     return e.message
   }
+  if (e instanceof Error && CJK.test(e.message)) return e.message
   return '操作失败，请稍后重试'
 }
 
@@ -70,8 +71,11 @@ function isAuthFailure(e: ApiError): boolean {
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: 'same-origin' }
   if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' }
-    init.body = JSON.stringify(body)
+    if (body instanceof FormData) init.body = body
+    else {
+      init.headers = { 'Content-Type': 'application/json' }
+      init.body = JSON.stringify(body)
+    }
   }
 
   let res: Response

@@ -30,6 +30,7 @@ const OPENAI_PURPOSES = new Set(['outline_llm', 'review_llm', 'vision_llm', 'emb
 const baseUrlPlaceholder = computed(() => {
   const purpose = props.config?.purpose ?? ''
   if (purpose === 'tts') return 'https://openspeech.bytedance.com'
+  if (purpose === 'web_search') return 'https://api.tavily.com'
   return OPENAI_PURPOSES.has(purpose) ? '例如 https://example.com/v1' : 'https://'
 })
 const hasSavedKey = computed(() => props.config?.api_key_status !== 'missing')
@@ -120,9 +121,11 @@ async function onSave() {
   <el-dialog v-model="visible" :title="`编辑模型配置：${config?.label ?? ''}`" width="560px" @closed="form.api_key = ''">
     <el-form v-if="config" ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSave">
       <el-form-item label="接口地址" prop="base_url">
-        <el-input v-model="form.base_url" :placeholder="baseUrlPlaceholder" autocomplete="off" />
+        <el-input v-model="form.base_url" :placeholder="baseUrlPlaceholder" autocomplete="off" :aria-describedby="isTts ? 'tts-url-hint' : undefined" />
+        <p v-if="isTts" id="tts-url-hint" class="ev-muted key-status">支持填写 https://openspeech.bytedance.com 或完整接口地址 https://openspeech.bytedance.com/api/v3/tts/create。</p>
+        <p v-if="config.purpose === 'web_search'" class="ev-muted key-status">使用 Tavily Search，支持服务根地址或完整 /search 地址。填写 API Key 即可，模型名称留空；测试连接会执行一次最小搜索。</p>
       </el-form-item>
-      <el-form-item label="模型名称" prop="model">
+      <el-form-item :label="config.purpose === 'web_search' ? '模型名称（搜索不需要）' : '模型名称'" prop="model">
         <el-input v-model="form.model" autocomplete="off" />
       </el-form-item>
       <el-form-item label="API Key">
@@ -144,6 +147,11 @@ async function onSave() {
             清除已保存的 Key
           </el-checkbox>
         </div>
+        <p v-if="isTts" class="ev-muted key-status">
+          使用火山引擎新版语音控制台「API Key 管理」中的 Key（X-Api-Key），不能直接填写旧版 Access Token。
+          请确认当前项目已开通所填模型对应的音频生成服务；403 / 45000030 且提示 requested resource not granted 表示资源未授权。
+          <a href="https://console.volcengine.com/speech/new/setting/apikeys?projectName=default." target="_blank" rel="noopener noreferrer">打开 API Key 管理</a>
+        </p>
       </el-form-item>
       <el-form-item label="启用">
         <el-switch v-model="form.enabled" aria-label="启用" />

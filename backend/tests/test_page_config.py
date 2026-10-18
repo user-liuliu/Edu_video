@@ -140,7 +140,7 @@ async def test_public_never_leaks_model_info(teacher_client, admin_client):
     for needle in ("https://r.example.com/v1", "sk-secret", "****9f2a", "generation",
                    "tts.example.com", "sk-tts", "tts-model", "web_search.example.com"):
         assert needle not in r.text, needle
-    assert set(r.json()) == {"system_available", "fields"}
+    assert set(r.json()) == {"system_available", "fields", "form_version"}
 
 
 async def test_public_requires_active(client, make_user):

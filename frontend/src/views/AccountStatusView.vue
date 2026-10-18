@@ -5,6 +5,7 @@ import type { CurrentUser } from '../api/auth'
 import { errorText } from '../api/http'
 import AuthCard from '../components/AuthCard.vue'
 import { useAuthStore } from '../stores/auth'
+import { clearAllVideoDraftCache } from '../utils/video-draft-cache'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -29,6 +30,7 @@ async function onLogout() {
   try {
     await auth.logout()
     await router.push({ name: 'login' })
+    await clearAllVideoDraftCache()
   } catch (e) {
     logoutError.value = errorText(e)
   } finally {

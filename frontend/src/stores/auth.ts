@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import * as authApi from '../api/auth'
 import type { CurrentUser } from '../api/auth'
 import { ApiError } from '../api/http'
+import { clearAllVideoDraftCache } from '../utils/video-draft-cache'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<CurrentUser | null>(null)
@@ -29,6 +30,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout(): Promise<void> {
     await authApi.logout()
+    await clearAllVideoDraftCache()
     user.value = null
     loaded.value = true
   }

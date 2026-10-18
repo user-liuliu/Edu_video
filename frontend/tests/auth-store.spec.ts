@@ -42,6 +42,8 @@ test('fetchMe: other errors propagate and stay not loaded', async () => {
 })
 
 test('logout clears user', async () => {
+  localStorage.setItem('edu-video:draft:project:new', JSON.stringify({prompt:'临时内容'}))
+  localStorage.setItem('edu-video:draft:project:p1', JSON.stringify({prompt:'未保存修改'}))
   stubFetch(200, { id: '1', username: 'u', role: 'admin', status: 'active' })
   const auth = useAuthStore()
   await auth.login('u', 'p')
@@ -49,4 +51,6 @@ test('logout clears user', async () => {
   stubFetch(204)
   await auth.logout()
   expect(auth.user).toBeNull()
+  expect(localStorage.getItem('edu-video:draft:project:new')).toBeNull()
+  expect(localStorage.getItem('edu-video:draft:project:p1')).toBeNull()
 })
