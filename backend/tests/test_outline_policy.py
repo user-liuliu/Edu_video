@@ -45,18 +45,22 @@ async def test_hidden_materials_cannot_be_uploaded(db,teacher_client):
     assert response.status_code==409
     assert response.json()['detail']['code']=='materials_disabled'
 
-async def test_agent_enforces_visual_count_and_reports_duration_tolerance():
-    s=segment()
-    async def generate(state):return {'segments':[s]}
-    async def review(state):return {s['id']:{'passed':True,'issues':[],'notes':[]}}
-    params=GenerationParams().model_dump()
-    state={'prompt':'数学','form_values':{'duration_seconds':300},'evidence':[],'operation':'generate','generation_params':params}
-    graph=build_outline_graph(InMemorySaver(),generate,review)
-    with pytest.raises(ValueError,match='画面数'):
-        await graph.ainvoke(state,{'configurable':{'thread_id':'bad-count'}})
-    s['visuals']*=3
-    result=await graph.ainvoke(state,{'configurable':{'thread_id':'duration'}})
-    assert any('时长偏差' in n for n in result['outline']['segments'][0]['review_notes'])
+@pytest.mark.parametrize('visual_count', [1, 7])
+@pytest.mark.parametrize('operation', ['generate', 'review'])
+async def test_agent_ignores_legacy_visual_limits_but_keeps_duration_warning(visual_count, operation):
+    s = segment()
+    s['visuals'] *= visual_count
+    async def generate(state): return {'segments': [s]}
+    async def review(state): return {s['id']: {'passed': True, 'issues': [], 'notes': []}}
+    params = {**GenerationParams().model_dump(), 'segment_visuals_min': 3, 'segment_visuals_max': 6}
+    state = {'prompt': '数学', 'form_values': {'duration_seconds': 300}, 'evidence': [],
+        'operation': operation, 'generation_params': params, 'outline': {'segments': [s]}}
+    graph = build_outline_graph(InMemorySaver(), generate, review)
+    result = await graph.ainvoke(state, {'configurable': {'thread_id': f'{operation}-{visual_count}'}})
+    actual = result['outline']['segments'][0]
+    assert len(actual['visuals']) == visual_count
+    assert actual['review_passed'] is True
+    assert any('时长偏差' in n for n in actual['review_notes'])
 
 
 def test_model_visual_kind_aliases_are_normalized_before_schema_validation():

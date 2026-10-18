@@ -21,7 +21,7 @@ _TTS_OK_CODES = (0, 20000000)
 
 _CHAT_PURPOSES = frozenset({Purpose.outline_llm, Purpose.review_llm, Purpose.vision_llm})
 # 走 OpenAI 兼容接口的用途：地址通常以 /v1 结尾
-_OPENAI_PURPOSES = _CHAT_PURPOSES | {Purpose.embedding, Purpose.image_gen}
+_OPENAI_PURPOSES = _CHAT_PURPOSES | {Purpose.embedding}
 _V1_HINT = "。接口地址可能不完整：OpenAI 兼容接口通常以 /v1 结尾"
 
 
@@ -63,16 +63,6 @@ def _json(resp: httpx.Response) -> Any:
         return resp.json()
     except ValueError:
         return None
-
-
-def _check_image_models(resp: httpx.Response, model: str) -> ProbeResult:
-    body = _json(resp)
-    data = body.get("data") if isinstance(body, dict) else None
-    if isinstance(data, list) and any(
-        isinstance(m, dict) and m.get("id") == model for m in data
-    ):
-        return ProbeResult(True, OK_MESSAGE)
-    return ProbeResult(False, f"接口可用，但没有找到模型 {model}")
 
 
 def _preview(text: str, secret: str) -> str:
@@ -139,9 +129,6 @@ async def _probe(http: httpx.AsyncClient, cfg: ResolvedConfig) -> ProbeResult:
     elif purpose == Purpose.embedding:
         method, path, headers = "POST", "embeddings", bearer
         body = {"model": cfg.model, "input": "ping"}
-    elif purpose == Purpose.image_gen:
-        # 只查模型列表，不真的生成图片（生成要花钱）
-        method, path, headers, body = "GET", "models", bearer, None
     elif purpose == Purpose.tts:
         voice = _first_voice(cfg.extra)
         if voice is None:
@@ -175,8 +162,6 @@ async def _probe(http: httpx.AsyncClient, cfg: ResolvedConfig) -> ProbeResult:
 
     if not resp.is_success:
         return _http_error(resp, purpose, cfg)
-    if purpose == Purpose.image_gen:
-        return _check_image_models(resp, cfg.model)
     if purpose == Purpose.tts:
         return _check_tts(resp, cfg.api_key)
     return ProbeResult(True, OK_MESSAGE)

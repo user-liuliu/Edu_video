@@ -72,9 +72,6 @@ function formFields(): FormFieldsConfig {
 }
 
 const params = (): GenerationParams => ({
-  segment_visuals_min: 3,
-  segment_visuals_max: 6,
-  illustrations_per_minute: 4,
   max_concurrent_jobs: 2,
   max_retries: 2,
   duration_tolerance_pct: 15,
@@ -104,7 +101,7 @@ function modelConfigs(): ModelConfigView[] {
     modelCfg('outline_llm', '写大纲/讲稿'),
     modelCfg('review_llm', '审核', { api_key_status: 'undecryptable', api_key_masked: null, last_test_ok: null }),
     modelCfg('vision_llm', '看图识别', { last_test_ok: false, last_test_message: '接口返回 401' }),
-    modelCfg('image_gen', '画插图'),
+
     modelCfg('embedding', 'Embedding', { required: false, enabled: false }),
     modelCfg('tts', '配音', { voices: [{ speaker_id: 'zh_female_1', label: '温和女声' }] }),
     modelCfg('web_search', '联网搜索', {
@@ -390,9 +387,10 @@ test('page config: generation params save', async () => {
   m.putGenerationParams.mockImplementation(async (p) => p)
   const w = await mountTab(PageConfigTab)
   const s = section(w, '生成参数')
-  expect(field(s, '每段画面数（下限）').attributes('aria-valuemin')).toBe('1')
-  expect(field(s, '每段画面数（下限）').attributes('aria-valuemax')).toBe('10')
-  expect(field(s, '每段画面数（上限）').attributes('aria-valuemax')).toBe('12')
+  expect(s.text()).not.toContain('每段画面数')
+  expect(s.text()).not.toContain('每分钟插图上限')
+  expect(field(s, '同时生成的任务数').attributes('aria-valuemin')).toBe('1')
+  expect(field(s, '同时生成的任务数').attributes('aria-valuemax')).toBe('20')
   expect(field(s, '失败重试次数').attributes('aria-valuemax')).toBe('5')
   expect(s.find('[role="switch"][aria-label="长期记忆"]').exists()).toBe(true)
   await button(s, '保存').trigger('click')
@@ -405,7 +403,7 @@ test('page config: generation params save', async () => {
 
 test('model config: undecryptable shows warning text', async () => {
   const w = await mountTab(ModelConfigTab)
-  expect(w.findAll('tbody tr')).toHaveLength(7)
+  expect(w.findAll('tbody tr')).toHaveLength(6)
   expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用途', '接口地址', 'Key', '模型', '状态', '操作'])
   const bad = row(w, '审核').find('.key-undecryptable')
   expect(bad.text()).toBe('无法解密，请重新填写')

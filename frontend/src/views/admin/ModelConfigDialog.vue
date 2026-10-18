@@ -26,7 +26,7 @@ const voiceError = ref('')
 
 const isTts = computed(() => props.config?.purpose === 'tts')
 // 走 OpenAI 兼容接口的用途：地址通常要带 /v1
-const OPENAI_PURPOSES = new Set(['outline_llm', 'review_llm', 'vision_llm', 'embedding', 'image_gen'])
+const OPENAI_PURPOSES = new Set(['outline_llm', 'review_llm', 'vision_llm', 'embedding'])
 const baseUrlPlaceholder = computed(() => {
   const purpose = props.config?.purpose ?? ''
   if (purpose === 'tts') return 'https://openspeech.bytedance.com'

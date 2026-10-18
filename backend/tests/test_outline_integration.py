@@ -46,12 +46,14 @@ async def test_persisted_outline_review_and_confirmation(db,teacher_client,setti
                 assert current.progress == (80 if config.purpose==Purpose.review_llm else 45)
             calls.append(config.purpose)
             if config.purpose==Purpose.review_llm:return {'items':[{'segment_id':sid,'passed':True,'issues':[],'notes':['请核对教材']}]}
-            return {'segments':[{'id':sid,'title':'开场','objective':'理解函数','narration':'同学们好，今天学习二次函数。','visuals':[{'kind':'文字卡','description':'函数表达式'}]*3,'evidence_ids':[],'content_kind':'knowledge'}]}
+            assert '每段画面数在' not in messages[0]['content']
+            return {'segments':[{'id':sid,'title':'开场','objective':'理解函数','narration':'同学们好，今天学习二次函数。','visuals':[{'kind':'文字卡','description':'函数表达式'}]*(7 if observed_job.kind=='rewrite' else 1),'evidence_ids':[],'content_kind':'knowledge'}]}
         monkeypatch.setattr('app.outline.service.chat_json',chat)
         await execute_outline_job(db,job,isolated)
         await db.commit()
         await db.refresh(p)
         assert p.status=='outline_ready' and p.revision==2
+        assert len(p.outline['segments'][0]['visuals']) == 1
         assert p.outline['segments'][0]['estimated_duration_seconds']>1
         assert calls==[Purpose.outline_llm,Purpose.review_llm]
         job.status='succeeded';await db.commit()
@@ -80,6 +82,7 @@ async def test_persisted_outline_review_and_confirmation(db,teacher_client,setti
         await execute_outline_job(db,rewrite,isolated);await db.commit();await db.refresh(p)
         assert p.outline['segments'][0]['id']==sid
         assert p.outline['segments'][0]['content_revision']==2
+        assert len(p.outline['segments'][0]['visuals']) == 7
         assert p.outline['segments'][0]['reviewed_revision']==2
         rewrite.status='succeeded';await db.commit()
         await save_outline(db,p.owner_id,p.id,OutlineSave(revision=p.revision,segments=p.outline['segments']))
@@ -109,3 +112,98 @@ async def test_material_multiple_uploads_and_private_download(teacher_client,adm
     assert len(objects)==2
     assert (await admin_client.get(path+'/'+ids[0]+'/download')).status_code==404
     assert (await teacher_client.get(path+'/'+ids[0]+'/download')).content==stream.getvalue()
+
+async def test_provider_error_is_not_rewritten_as_invalid_outline(db, teacher_client, settings, monkeypatch):
+    import httpx
+    from app.outline.model_client import chat_json as real_chat
+    from app.jobs.tasks import run_job
+    schema = 'agent_test_' + uuid4().hex
+    isolated = settings.model_copy(update={'agent_schema': schema})
+    await initialize_agent_state(isolated)
+    try:
+        response = await teacher_client.post('/api/projects', json={'prompt': '串联电路'})
+        project = await db.get(VideoProject, UUID(response.json()['id']))
+        old_outline = {'segments': []}
+        project.outline = old_outline
+        version = (await teacher_client.get('/api/config/form')).json()['form_version']
+        job = await create_job(db, project, 'generate', 'provider-error', {'segment_ids': [], 'instruction': '', 'form_version': version})
+        await db.commit()
+        revision = project.revision
+        async def resolve(db, box, purpose):
+            if purpose not in (Purpose.outline_llm, Purpose.review_llm):
+                return None
+            return ResolvedConfig(purpose, 'https://model.example/v1', 'private-test-key', 'test', {})
+        monkeypatch.setattr('app.outline.service.resolve', resolve)
+        requests = []
+        def respond(request):
+            requests.append(request)
+            return httpx.Response(401, json={'error': {'message': 'private-test-key'}})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+            async def chat(config, messages, *args, **kwargs):
+                kwargs['client'] = http
+                return await real_chat(config, messages, *args, **kwargs)
+            monkeypatch.setattr('app.outline.service.chat_json', chat)
+            await run_job(job.id, isolated)
+        await db.refresh(job)
+        await db.refresh(project)
+        assert job.status == 'failed'
+        assert '401' in job.error_message and '认证失败' in job.error_message
+        assert '结构' not in job.error_message and 'private-test-key' not in job.error_message
+        assert len(requests) == 1
+        assert project.outline == old_outline and project.revision == revision
+    finally:
+        await db.rollback()
+        await db.execute(text('DROP SCHEMA ' + schema + ' CASCADE'))
+        await db.commit()
+
+async def test_review_failure_can_resume_without_regenerating_saved_checkpoint(db, teacher_client, settings, monkeypatch):
+    from app.outline.model_client import ModelCallError
+    from app.jobs.tasks import run_job
+    schema = 'agent_test_' + uuid4().hex
+    isolated = settings.model_copy(update={'agent_schema': schema})
+    await initialize_agent_state(isolated)
+    try:
+        project_id = (await teacher_client.post('/api/projects', json={'prompt': '孔融让梨'})).json()['id']
+        project = await db.get(VideoProject, UUID(project_id))
+        old_outline = {'segments': []}
+        project.outline = old_outline
+        version = (await teacher_client.get('/api/config/form')).json()['form_version']
+        job = await create_job(db, project, 'generate', 'resume-audit', {'segment_ids': [], 'instruction': '', 'form_version': version})
+        await db.commit()
+        initial_revision = project.revision
+        sid = str(uuid4())
+        calls = []
+        fail_review = True
+        async def resolve(db, box, purpose):
+            if purpose not in (Purpose.outline_llm, Purpose.review_llm):
+                return None
+            return ResolvedConfig(purpose, 'https://model.example/v1', 'private-test-key', 'test', {})
+        async def chat(config, messages, *args, **kwargs):
+            calls.append(config.purpose)
+            if config.purpose == Purpose.outline_llm:
+                assert kwargs['request_retries'] == 2
+                return {'segments': [{'id': sid, 'title': '让梨', 'objective': '理解故事', 'narration': '孔融把大梨让给哥哥。', 'visuals': [{'kind': '文字卡', 'description': '梨'}], 'evidence_ids': [], 'content_kind': 'reenactment'}]}
+            if fail_review:
+                raise ModelCallError('模型服务暂时异常（HTTP 503）', category='unavailable', status_code=503)
+            return {'items': [{'segment_id': sid, 'passed': True, 'issues': [], 'notes': []}]}
+        monkeypatch.setattr('app.outline.service.resolve', resolve)
+        monkeypatch.setattr('app.outline.service.chat_json', chat)
+        await run_job(job.id, isolated)
+        await db.refresh(job)
+        await db.refresh(project)
+        assert job.status == 'failed' and job.progress == 80
+        assert project.outline == old_outline and project.revision == initial_revision
+        fail_review = False
+        job.status = 'pending'
+        await db.commit()
+        await run_job(job.id, isolated)
+        await db.refresh(job)
+        await db.refresh(project)
+        assert job.status == 'succeeded' and job.progress == 100
+        assert project.revision == initial_revision + 1
+        assert project.outline['segments'][0]['review_passed'] is True
+        assert calls == [Purpose.outline_llm, Purpose.review_llm, Purpose.review_llm]
+    finally:
+        await db.rollback()
+        await db.execute(text('DROP SCHEMA ' + schema + ' CASCADE'))
+        await db.commit()

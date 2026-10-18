@@ -103,30 +103,6 @@ async def test_embedding_probe(admin_client, respx_mock):
     assert json.loads(route.calls.last.request.content) == {"model": "emb-1", "input": "ping"}
 
 
-async def test_image_probe_model_found(admin_client, respx_mock):
-    route = respx_mock.get(f"{BASE}/models").respond(200, json={"data": [{"id": "other"}, {"id": "img-1"}]})
-    await put(admin_client, "image_gen", base_url=BASE, model="img-1", enabled=False, api_key="sk-k1")
-    r = await _test(admin_client, "image_gen")
-    assert r.json() == {"ok": True, "message": "连接正常"}
-    assert route.calls.last.request.headers["Authorization"] == "Bearer sk-k1"
-
-
-async def test_image_probe_model_missing(admin_client, respx_mock):
-    respx_mock.get(f"{BASE}/models").respond(200, json={"data": [{"id": "other"}]})
-    await put(admin_client, "image_gen", base_url=BASE, model="img-1", enabled=False, api_key="sk-k1")
-    r = await _test(admin_client, "image_gen")
-    assert r.json()["ok"] is False and "没有找到模型" in r.json()["message"]
-    assert r.json()["message"] == "接口可用，但没有找到模型 img-1"
-    assert (await _items(admin_client))["image_gen"]["last_test_ok"] is False
-
-
-async def test_image_probe_no_data_list(admin_client, respx_mock):
-    respx_mock.get(f"{BASE}/models").respond(200, json={"object": "list"})
-    await put(admin_client, "image_gen", base_url=BASE, model="img-1", enabled=False, api_key="sk-k1")
-    r = await _test(admin_client, "image_gen")
-    assert r.json() == {"ok": False, "message": "接口可用，但没有找到模型 img-1"}
-
-
 async def test_tts_probe_uses_x_api_key_and_first_voice(admin_client, respx_mock):
     route = respx_mock.post(f"{TTS_BASE}/api/v3/tts/create").respond(200, json={"code": 20000000, "message": "ok"})
     await put(admin_client, "tts", base_url=TTS_BASE, model="seed-audio-1.0", enabled=False, api_key="tts-key-77", voices=VOICES)
@@ -261,9 +237,9 @@ async def test_405_without_v1_hints_incomplete_base_url(admin_client, respx_mock
 
 
 async def test_404_without_v1_hint_keeps_body(admin_client, respx_mock):
-    respx_mock.get("https://r.example.com/api/models").respond(404, text="not found")
-    await put(admin_client, "image_gen", base_url="https://r.example.com/api", model="img-1", enabled=False, api_key="sk-k1")
-    r = await _test(admin_client, "image_gen")
+    respx_mock.post("https://r.example.com/api/embeddings").respond(404, text="not found")
+    await put(admin_client, "embedding", base_url="https://r.example.com/api", model="emb-1", enabled=False, api_key="sk-k1")
+    r = await _test(admin_client, "embedding")
     assert r.json()["message"] == "HTTP 404：not found。接口地址可能不完整：OpenAI 兼容接口通常以 /v1 结尾"
 
 

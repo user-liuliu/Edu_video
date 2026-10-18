@@ -54,16 +54,16 @@ async def _configure_required_direct(db, box) -> None:
         await update_config(db, box, p, ModelConfigUpdate(**_full(p.value)))
 
 
-async def test_list_defaults_seven_purposes(admin_client):
+async def test_list_defaults_six_active_purposes(admin_client):
     items = (await admin_client.get("/api/admin/model-configs")).json()
-    assert [i["purpose"] for i in items] == ["outline_llm","review_llm","vision_llm","image_gen","embedding","tts","web_search"]
-    tts = items[5]; assert tts["base_url"] == "https://openspeech.bytedance.com" and tts["model"] == "seed-audio-1.0"
+    assert [i["purpose"] for i in items] == ["outline_llm","review_llm","vision_llm","embedding","tts","web_search"]
+    tts = items[4]; assert tts["base_url"] == "https://openspeech.bytedance.com" and tts["model"] == "seed-audio-1.0"
 
 
 async def test_list_defaults_details(admin_client, db):
     items = await _items(admin_client)
     assert items["embedding"]["model"] == "qwen3.7-text-embedding-flash"
-    assert items["image_gen"]["model"] == "gpt-image-2.5-flare"
+    assert "image_gen" not in items
     assert items["outline_llm"]["label"] == "写大纲/讲稿"
     for p, item in items.items():
         assert item["required"] is (Purpose(p) in REQUIRED_PURPOSES)
@@ -240,7 +240,7 @@ async def test_undecryptable_key(app, db, admin_client):
 async def test_system_available(db, box):
     assert await system_available(db, box) is False
     await _configure_required_direct(db, box)
-    # 5 个必需项都配好，不配 web_search 和 embedding 也可用
+    # 4 个必需项都配好，不配 web_search 和 embedding 也可用
     assert await system_available(db, box) is True
     for p in (Purpose.web_search, Purpose.embedding):
         assert p not in REQUIRED_PURPOSES
@@ -258,7 +258,7 @@ async def test_system_available(db, box):
     assert await system_available(db, box) is True
 
     # 必需项被停用也不可用
-    await update_config(db, box, Purpose.image_gen, ModelConfigUpdate(**_full("image_gen", enabled=False)))
+    await update_config(db, box, Purpose.tts, ModelConfigUpdate(**_full("tts", enabled=False)))
     assert await system_available(db, box) is False
 
 
@@ -327,3 +327,28 @@ async def test_non_ascii_api_key_rejected(admin_client, db):
 def test_update_repr_hides_api_key():
     upd = ModelConfigUpdate(base_url="", model="", enabled=False, api_key="sk-hidden-5678")
     assert "sk-hidden-5678" not in repr(upd)
+
+
+async def test_legacy_image_config_is_preserved_but_not_active(db, box, admin_client, teacher_client):
+    for p in (Purpose.outline_llm, Purpose.review_llm, Purpose.vision_llm, Purpose.tts):
+        await update_config(db, box, p, ModelConfigUpdate(**_full(p.value)))
+    legacy = ModelConfigRow(purpose='image_gen', base_url='https://old.invalid',
+        model='old-image', enabled=True, api_key_encrypted='legacy-ciphertext',
+        extra={}, last_test_ok=False)
+    db.add(legacy)
+    await db.commit()
+    assert 'image_gen' not in await _items(admin_client)
+    assert await system_available(db, box) is True
+    assert (await teacher_client.get('/api/config/form')).json()['system_available'] is True
+    await db.refresh(legacy)
+    assert legacy.api_key_encrypted == 'legacy-ciphertext'
+    assert legacy.enabled is True
+
+
+async def test_retired_image_configuration_endpoints_reject_requests(admin_client, db, respx_mock):
+    response = await admin_client.put(f'{URL}/image_gen', json=_full('image_gen'))
+    assert response.status_code == 422
+    response = await admin_client.post(f'{URL}/image_gen/test')
+    assert response.status_code == 422
+    assert await db.get(ModelConfigRow, 'image_gen') is None
+    assert len(respx_mock.calls) == 0

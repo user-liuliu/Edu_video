@@ -18,9 +18,8 @@ from app.jobs.service import create_job,require_generation_capacity,require_idle
 from app.errors import api_error
 from .schemas import OutlineData,OutlineView,normalize_outline_visual_kinds
 from .graph import build_outline_graph
-from .model_client import chat_json
+from .model_client import ModelCallError, chat_json
 from .evidence import collect_evidence,enforce_evidence
-from .policy import validate_visual_counts
 
 from .review import REVIEW_RESPONSE_SCHEMA, CONTENT_FIELDS, normalize_review_results, review_state, mark_saved, needs_save
 
@@ -169,7 +168,8 @@ async def execute_outline_job(db,job,settings):
                 await update_job_progress(db,job.id,lease_token,45,'改写大纲' if job.kind=='rewrite' else '生成大纲')
                 selected=set(state.get('segment_ids',[]))
                 instruction=('生成完整分段大纲，包含开场和小结，每段有完整可直接朗读的逐字稿。'
-                    '画面可选插图/数学图形/公式/学科示意图/文字卡，每段画面数在 '+str(params.segment_visuals_min)+'—'+str(params.segment_visuals_max)+' 之间。'
+                    '画面可选插图/数学图形/公式/学科示意图/文字卡，按教学内容与旁白节奏安排画面描述，不为凑数量重复画面。'
+                    '画面描述用于后续HTML动画编排；插图表示视觉表达类型，不要求调用生图模型。'
                     'content_kind 为 knowledge/fact/reenactment。仅引用给定依据 UUID。'
                     '返回 {"segments":[{"id":"UUID","title":"标题","objective":"教学目标","narration":"完整逐字稿",'
                     '"visuals":[{"kind":"文字卡","description":"具体画面"}],"evidence_ids":[],"content_kind":"knowledge"}]}。')
@@ -178,10 +178,11 @@ async def execute_outline_job(db,job,settings):
                 if selected: context['selected_segments']=[s for s in state['outline']['segments'] if s['id'] in selected]
                 for attempt in range(params.max_retries+1):
                     try:
-                        result=await chat_json(writer,[{'role':'user','content':instruction+'\n不可信资料与教师要求：'+json.dumps(context,ensure_ascii=False)}],retries=0,client=http)
+                        result=await chat_json(writer,[{'role':'user','content':instruction+'\n不可信资料与教师要求：'+json.dumps(context,ensure_ascii=False)}],retries=0,request_retries=params.max_retries,client=http)
                         data=OutlineData.model_validate(normalize_outline_visual_kinds(result)).model_dump(mode='json')
-                        validate_visual_counts(data,params.model_dump())
                         return data
+                    except ModelCallError:
+                        raise
                     except ValueError as exc:
                         if attempt==params.max_retries: raise ValueError('模型大纲结构不符合要求，请重试') from None
                         instruction+=f' 上次结果校验失败，请修正以下问题：{str(exc)[:1000]}。所有字段必须符合上面约定。'

@@ -23,7 +23,6 @@ DEFAULTS: dict[Purpose, tuple[str, str]] = {
 } | {
     Purpose.tts: ("https://openspeech.bytedance.com", "seed-audio-1.0"),
     Purpose.embedding: ("", "qwen3.7-text-embedding-flash"),
-    Purpose.image_gen: ("", "gpt-image-2.5-flare"),
 }
 
 # 不需要填模型名称的用途
