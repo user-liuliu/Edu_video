@@ -30,6 +30,7 @@ function makeRouter() {
       { path: '/login', name: 'login', component: Empty },
       { path: '/register', name: 'register', component: Empty },
       { path: '/account-status', name: 'account-status', component: Empty },
+      { path: '/admin/page-config', name: 'admin-page-config', component: Empty },
     ],
   })
 }
@@ -153,6 +154,20 @@ test('login: active user routes to home', async () => {
   await field(w, '密码').setValue('pass1234')
   await submit(w)
   expect(router.currentRoute.value.name).toBe('home')
+  w.unmount()
+})
+
+test('login: active admin routes directly to page config', async () => {
+  const auth = useAuthStore()
+  vi.spyOn(auth, 'login').mockImplementation(async () => {
+    auth.user = { ...user('active'), role: 'admin' }
+    return auth.user
+  })
+  const { w, router } = await mountView(LoginView, '/login')
+  await field(w, '用户名').setValue('admin')
+  await field(w, '密码').setValue('pass1234')
+  await submit(w)
+  expect(router.currentRoute.value.name).toBe('admin-page-config')
   w.unmount()
 })
 

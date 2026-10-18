@@ -24,16 +24,31 @@ services:
     restart: unless-stopped
 
   backend:
+    image: edu-video-backend:latest
     build: ./backend
     env_file: .env
     environment:
       # 容器里通过服务名访问数据库和 Redis，覆盖 .env 里给本地开发用的 localhost 地址
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      TEMP_DIR: /tmp
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700,size=768m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+      minio:
         condition: service_started
     # 不映射端口：只有 frontend 里的 nginx 能访问后端
     restart: unless-stopped
@@ -46,5 +61,51 @@ services:
       - backend
     restart: unless-stopped
 
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: server /data --console-address :9001
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - materials:/data
+    restart: unless-stopped
+
+  worker:
+    image: edu-video-backend:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      TEMP_DIR: /tmp
+    command: celery -A app.jobs.celery_app:celery_app worker --loglevel=warning --concurrency=2
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700,size=768m
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler:
+    image: edu-video-backend:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    command: celery -A app.jobs.celery_app:celery_app beat --loglevel=warning --schedule=/tmp/celerybeat-schedule
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700,size=32m
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  materials:

@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    UniqueConstraint,
     func,
     text,
 )
@@ -111,3 +112,99 @@ class ModelConfigRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class VideoProject(Base):
+    __tablename__ = 'video_projects'
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    prompt: Mapped[str] = mapped_column(Text)
+    form_values: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(String(32), default='draft', server_default='draft')
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default=text('1'))
+    outline: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    needs_regeneration: Mapped[bool] = mapped_column(Boolean,default=False,server_default=text('false'))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Material(Base):
+    __tablename__ = 'materials'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('video_projects.id', ondelete='CASCADE'), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    object_key: Mapped[str] = mapped_column(String(512))
+    content_type: Mapped[str] = mapped_column(String(128))
+    size: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default='pending', server_default='pending')
+    error_message: Mapped[str | None] = mapped_column(Text)
+    parse_warnings: Mapped[list[dict[str, str]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MaterialChunk(Base):
+    __tablename__ = 'material_chunks'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('video_projects.id', ondelete='CASCADE'), index=True)
+    material_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('materials.id', ondelete='CASCADE'), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    location: Mapped[str] = mapped_column(String(128))
+    text: Mapped[str] = mapped_column(Text)
+    image_key: Mapped[str | None] = mapped_column(String(512))
+
+
+class OutlineJob(Base):
+    __tablename__ = 'outline_jobs'
+    __table_args__ = (UniqueConstraint('owner_id', 'project_id', 'kind', 'idempotency_key', name='uq_outline_jobs_request'),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('video_projects.id', ondelete='CASCADE'), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    expected_revision: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(String(32), default='pending', server_default='pending')
+    stage: Mapped[str] = mapped_column(String(64), default='等待处理', server_default='等待处理')
+    progress: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Evidence(Base):
+    __tablename__ = 'evidence'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('video_projects.id', ondelete='CASCADE'), index=True)
+    claim: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(String(32))
+    source_ref: Mapped[str] = mapped_column(Text)
+    location: Mapped[str] = mapped_column(String(128), default='', server_default='')
+    excerpt: Mapped[str] = mapped_column(Text)
+    source_grade: Mapped[str] = mapped_column(String(32))
+    verification_status: Mapped[str] = mapped_column(String(32), default='unverified', server_default='unverified')
+
+
+class Preference(Base):
+    __tablename__ = 'preferences'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    category: Mapped[str] = mapped_column(String(32))
+    value: Mapped[str] = mapped_column(String(200))
+    accepted: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text('true'))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ObjectCleanup(Base):
+    __tablename__ = 'object_cleanup'
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    object_key: Mapped[str] = mapped_column(String(512), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

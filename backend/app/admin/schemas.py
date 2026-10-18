@@ -20,6 +20,10 @@ class SetRoleRequest(BaseModel):
     role: UserRole
 
 
+class AdminUserOut(UserOut):
+    video_count: int = 0
+
+
 class UserListOut(BaseModel):
-    items: list[UserOut]
+    items: list[AdminUserOut]
     total: int

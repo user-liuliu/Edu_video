@@ -11,6 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-impress libreoffice-writer libseccomp2 fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
+
 # 先只装依赖（不含 dev 组），代码变动时能复用这一层缓存
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
@@ -29,4 +31,4 @@ EXPOSE 8000
 
 # 依次：数据库迁移 -> 初始化管理员 -> 启动服务；任何一步失败都会让容器退出。
 # 后端端口不对外暴露，只有同一网络里的 nginx 能访问，所以信任所有转发 IP。
-CMD ["sh", "-c", "alembic upgrade head && python -m app.cli bootstrap && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "alembic upgrade head && python -m app.cli bootstrap && python -m app.jobs.setup && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]

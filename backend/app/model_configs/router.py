@@ -41,11 +41,10 @@ async def update_model_config(
 @router.post("/{purpose}/test")
 async def probe_model_config(purpose: Purpose, db: DB, box: Box, http: Http) -> ProbeResult:
     """向接口发一个最小的请求，记录并返回结果。没启用的配置也可以测。"""
-    if purpose == Purpose.web_search:
-        raise api_error(400, "probe_unsupported", "联网搜索暂不支持测试连接")
     cfg = await resolve(db, box, purpose, require_enabled=False)
     if cfg is None:
-        raise api_error(409, "config_incomplete", "请先填写接口地址、API key 和模型名称")
+        message = '请先填写接口地址和 API Key' if purpose == Purpose.web_search else '请先填写接口地址、API key 和模型名称'
+        raise api_error(409, "config_incomplete", message)
     # 结束只读事务，免得等待接口响应时一直占着数据库连接上的事务
     await db.rollback()
     try:

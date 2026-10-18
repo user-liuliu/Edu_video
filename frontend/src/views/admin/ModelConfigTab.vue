@@ -55,7 +55,7 @@ function formatTime(iso: string | null) {
 // ---------- 测试连接 ----------
 
 /** 联网搜索第 1 部分还没有接入，不能测试 */
-const UNTESTABLE: readonly Purpose[] = ['web_search']
+const UNTESTABLE: readonly Purpose[] = []
 const testing = reactive<Partial<Record<Purpose, boolean>>>({})
 
 async function onTest(c: ModelConfigView) {

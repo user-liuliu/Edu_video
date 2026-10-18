@@ -11,3 +11,32 @@ test('active on login → home', () => expect(decideRoute({ name: 'login', meta:
 test('teacher to admin → home', () => expect(decideRoute({ name: 'admin-users', meta: { admin: true } }, T('active'))).toEqual({ name: 'home' }))
 test('admin to admin ok', () => expect(decideRoute({ name: 'admin-users', meta: { admin: true } }, T('active', 'admin'))).toBe(true))
 test('active on account-status → home', () => expect(decideRoute({ name: 'account-status', meta: {} }, T('active'))).toEqual({ name: 'home' }))
+
+test.each([
+  { name: 'home', meta: {} },
+  { name: 'login', meta: { public: true } },
+  { name: 'register', meta: { public: true } },
+  { name: 'account-status', meta: {} },
+])('active admin on $name → page config', (target) => {
+  expect(decideRoute(target, T('active', 'admin'))).toEqual({ name: 'admin-page-config' })
+})
+
+test.each([
+  'project-create', 'project-list', 'project-edit', 'project-outline',
+  'project-drafts', 'preferences',
+])('admin cannot enter teacher route %s', (name) => {
+  expect(decideRoute({ name, meta: {} }, T('active', 'admin'))).toEqual({ name: 'admin-page-config' })
+})
+
+test.each([
+  'project-create', 'project-list', 'project-edit', 'project-outline',
+  'project-drafts', 'preferences',
+])('teacher can still enter teacher route %s', (name) => {
+  expect(decideRoute({ name, meta: {} }, T('active'))).toBe(true)
+})
+
+test.each(['admin-page-config', 'admin-model-config', 'admin-users'])(
+  'admin can enter management route %s', (name) => {
+    expect(decideRoute({ name, meta: { admin: true } }, T('active', 'admin'))).toBe(true)
+  },
+)

@@ -1,6 +1,7 @@
 import json
 
 import httpx
+import pytest
 from conftest import put
 
 from app.model_configs.probe import join_url, redact
@@ -135,8 +136,23 @@ async def test_tts_probe_uses_x_api_key_and_first_voice(admin_client, respx_mock
     req = respx_mock.calls.last.request
     assert req.headers["X-Api-Key"] == "tts-key-77"
     assert "Authorization" not in req.headers
-    assert json.loads(req.content) == {"model": "seed-audio-1.0", "text_prompt": "测试", "speaker": "zh_female_1"}
+    assert json.loads(req.content) == {"model": "seed-audio-1.0", "text_prompt": "测试", "references": [{"speaker": "zh_female_1"}]}
     assert route.called
+
+
+@pytest.mark.parametrize("base_url", [
+    TTS_BASE,
+    TTS_BASE + "/",
+    TTS_BASE + "/api/v3/tts/create",
+    TTS_BASE + "/api/v3/tts/create/",
+])
+async def test_tts_probe_accepts_origin_or_complete_endpoint(admin_client, respx_mock, base_url):
+    route = respx_mock.post(f"{TTS_BASE}/api/v3/tts/create").respond(200, json={"audio": "dGVzdA=="})
+    await put(admin_client, "tts", base_url=base_url, model="seed-audio-1.0", enabled=False, api_key="tts-key-77", voices=VOICES)
+    response = await _test(admin_client, "tts")
+    assert response.json() == {"ok": True, "message": "连接正常"}
+    assert route.call_count == 1
+    assert len(respx_mock.calls) == 1
 
 
 async def test_tts_probe_code_zero_or_absent_ok(admin_client, respx_mock):
@@ -159,6 +175,39 @@ async def test_tts_probe_error_code(admin_client, respx_mock):
     assert msg == "接口返回错误：45000001 " + ("bad speaker for **** " + "y" * 300)[:200]
 
 
+@pytest.mark.parametrize("status_code", [403, 200])
+async def test_tts_resource_not_granted_explains_permission_and_stays_failed(admin_client, respx_mock, status_code):
+    respx_mock.post(f"{TTS_BASE}/api/v3/tts/create").respond(
+        status_code,
+        json={
+            "code": 45000030,
+            "message": "[resource_id=volc.service_type.10074] requested resource not granted tts-key-77",
+        },
+    )
+    await put(admin_client, "tts", base_url=TTS_BASE, model="seed-audio-1.0", enabled=False, api_key="tts-key-77", voices=VOICES)
+    response = await _test(admin_client, "tts")
+    assert response.json()["ok"] is False
+    message = response.json()["message"]
+    assert "资源未授权" in message
+    assert "新版语音控制台" in message and "API Key" in message
+    assert "45000030" in message and "volc.service_type.10074" in message
+    assert "tts-key-77" not in response.text
+    saved = (await _items(admin_client))["tts"]
+    assert saved["last_test_ok"] is False
+    assert saved["last_test_message"] == message
+
+
+async def test_tts_other_403_is_not_mislabeled_resource_permission(admin_client, respx_mock):
+    respx_mock.post(f"{TTS_BASE}/api/v3/tts/create").respond(
+        403, json={"code": 45000001, "message": "invalid credentials"}
+    )
+    await put(admin_client, "tts", base_url=TTS_BASE, model="seed-audio-1.0", enabled=False, api_key="tts-key-77", voices=VOICES)
+    response = await _test(admin_client, "tts")
+    assert response.json()["ok"] is False
+    assert response.json()["message"].startswith("HTTP 403")
+    assert "资源未授权" not in response.json()["message"]
+
+
 async def test_tts_probe_without_voices(admin_client, respx_mock):
     await put(admin_client, "tts", base_url=TTS_BASE, model="seed-audio-1.0", enabled=False, api_key="tts-key-77", voices=[])
     r = await _test(admin_client, "tts")
@@ -177,13 +226,13 @@ async def test_probe_incomplete_409(admin_client):
     assert (await _items(admin_client))["outline_llm"]["last_test_ok"] is None
 
 
-async def test_probe_web_search_400(admin_client):
+async def test_probe_web_search_uses_search_protocol(admin_client,respx_mock):
+    respx_mock.post(f'{BASE}/search').respond(200,json={'results':[]})
     await put(admin_client, "web_search", base_url=BASE, model="", enabled=False, api_key="sk-k1")
     r = await _test(admin_client, "web_search")
-    assert r.status_code == 400 and _code(r) == "probe_unsupported"
-    # 不记录
+    assert r.status_code == 200 and r.json()['ok'] is True
     item = (await _items(admin_client))["web_search"]
-    assert item["last_test_ok"] is None and item["last_test_message"] is None
+    assert item['last_test_ok'] is True
 
 
 async def test_probe_requires_admin(client):

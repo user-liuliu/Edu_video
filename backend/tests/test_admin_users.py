@@ -67,7 +67,7 @@ async def test_list_pending_first_and_filter(admin_client, make_user):
         "admin1",
     ]
     assert body["items"][0]["status"] == "pending"
-    assert set(body["items"][0]) == {"id", "username", "role", "status", "created_at"}
+    assert set(body["items"][0]) == {"id", "username", "role", "status", "created_at", "video_count"}
 
     r = await admin_client.get("/api/admin/users", params={"status": "active"})
     body = r.json()

@@ -1,4 +1,6 @@
 import asyncio
+import os
+import re
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -53,6 +55,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    test_schema = os.environ.get('ALEMBIC_TEST_SCHEMA')
+    if test_schema:
+        if not re.fullmatch(r'migration_test_[a-f0-9]{32}', test_schema):
+            raise ValueError('Invalid migration test schema')
+        connection.exec_driver_sql(f'SET search_path TO {test_schema}')
+        connection.commit()
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():

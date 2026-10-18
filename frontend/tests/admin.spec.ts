@@ -208,7 +208,7 @@ function field(w: Scope, label: string) {
 test('users: action buttons by status', async () => {
   const w = await mountTab(UsersTab)
   expect(m.listUsers).toHaveBeenCalledWith({ page: 1, page_size: 20 })
-  expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用户名', '角色', '状态', '注册时间', '操作'])
+  expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用户名', '角色', '状态', '注册时间', '视频项目数', '操作'])
 
   expect(buttons(row(w, '张老师'))).toEqual(['通过', '拒绝'])
   expect(row(w, '张老师').text()).toContain('待审核')
@@ -483,17 +483,19 @@ test('model config: tts dialog edits voices and sends a new key', async () => {
   })
 })
 
-test('model config: web_search test button disabled', async () => {
+test('model config: web_search can test the configured Tavily service', async () => {
   m.testModelConfig.mockResolvedValue({ ok: true, message: '连接正常' })
   const w = await mountTab(ModelConfigTab)
   const ws = row(w, '联网搜索')
-  expect(button(ws, '测试').attributes('disabled')).toBeDefined()
-  expect(ws.text()).toContain('第 2 部分接入搜索服务后可测试')
+  expect(button(ws, '测试').attributes('disabled')).toBeUndefined()
+  await button(ws, '测试').trigger('click')
+  await flushPromises()
+  expect(m.testModelConfig).toHaveBeenCalledWith('web_search')
 
   // 其他用途可以测试，结果用 message 显示
   await button(row(w, '写大纲/讲稿'), '测试').trigger('click')
   await flushPromises()
   expect(m.testModelConfig).toHaveBeenCalledWith('outline_llm')
   expect(messageSuccess).toHaveBeenCalledWith('连接正常')
-  expect(m.listModelConfigs).toHaveBeenCalledTimes(2)
+  expect(m.listModelConfigs).toHaveBeenCalledTimes(3)
 })

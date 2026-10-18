@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import UserOut, require_admin
 from app.db import get_session
-from app.models import User, UserStatus
+from app.models import User, UserStatus, VideoProject
 
-from .schemas import ResetPasswordRequest, SetRoleRequest, UserActionRequest, UserListOut
+from .schemas import ResetPasswordRequest, SetRoleRequest, UserActionRequest, UserListOut, AdminUserOut
 from .user_actions import apply_user_action, reset_password, set_role
 
 router = APIRouter(
@@ -55,7 +55,8 @@ async def list_users(
         .limit(page_size)
     )
     users = (await db.execute(stmt)).scalars().all()
-    return UserListOut(items=[UserOut.model_validate(u) for u in users], total=total or 0)
+    counts = dict((await db.execute(select(VideoProject.owner_id,func.count()).where(VideoProject.owner_id.in_([u.id for u in users])).group_by(VideoProject.owner_id))).all()) if users else {}
+    return UserListOut(items=[AdminUserOut(**UserOut.model_validate(u).model_dump(),video_count=counts.get(u.id,0)) for u in users], total=total or 0)
 
 
 @router.post("/{user_id}/actions")
