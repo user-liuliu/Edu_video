@@ -110,20 +110,10 @@ class FormFieldsConfig(BaseModel):
 
 
 class GenerationParams(BaseModel):
-    segment_visuals_min: int = Field(3, ge=1, le=10)
-    segment_visuals_max: int = Field(6, ge=1, le=12)
-    illustrations_per_minute: int = Field(4, ge=0, le=20)
     max_concurrent_jobs: int = Field(2, ge=1, le=20)
     max_retries: int = Field(2, ge=0, le=5)
     duration_tolerance_pct: int = Field(15, ge=5, le=50)
     long_term_memory_enabled: bool = True
-
-    @model_validator(mode="after")
-    def _check_visuals(self) -> Self:
-        if self.segment_visuals_max < self.segment_visuals_min:
-            raise ValueError("每段画面数的上限不能小于下限")
-        return self
-
 
 class RegistrationSettings(BaseModel):
     open: bool = True

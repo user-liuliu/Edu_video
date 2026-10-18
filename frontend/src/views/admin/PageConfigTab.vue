@@ -1,6 +1,6 @@
 <!-- 页面配置：老师"新建视频"页面上每个选项的可见性、默认值和可选值；下方是生成参数 -->
 <script setup lang="ts">
-import { ElMessage, type FormInstance, type FormItemRule } from 'element-plus'
+import { ElMessage, type FormInstance } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
   getFormFields,
@@ -152,23 +152,11 @@ type NumberParam = Exclude<keyof GenerationParams, 'long_term_memory_enabled'>
 
 /** 上下限和后端 GenerationParams 一致 */
 const NUMBER_PARAMS: { key: NumberParam; label: string; min: number; max: number; unit?: string }[] = [
-  { key: 'segment_visuals_min', label: '每段画面数（下限）', min: 1, max: 10 },
-  { key: 'segment_visuals_max', label: '每段画面数（上限）', min: 1, max: 12 },
-  { key: 'illustrations_per_minute', label: '每分钟插图上限', min: 0, max: 20, unit: '张' },
   { key: 'max_concurrent_jobs', label: '同时生成的任务数', min: 1, max: 20 },
   { key: 'max_retries', label: '失败重试次数', min: 0, max: 5 },
   { key: 'duration_tolerance_pct', label: '时长允许偏差', min: 5, max: 50, unit: '%' },
 ]
 
-const paramRules: Record<string, FormItemRule[]> = {
-  segment_visuals_max: [
-    {
-      trigger: 'change',
-      validator: (_r, v: number, cb) =>
-        params.value && v < params.value.segment_visuals_min ? cb(new Error('上限不能小于下限')) : cb(),
-    },
-  ],
-}
 </script>
 
 <template>
@@ -262,7 +250,7 @@ const paramRules: Record<string, FormItemRule[]> = {
         <el-button type="primary" :loading="savingParams" :disabled="savingParams" @click="saveParams">保存</el-button>
       </div>
 
-      <el-form ref="paramsForm" :model="params" :rules="paramRules" label-position="top" class="params" @submit.prevent="saveParams">
+      <el-form ref="paramsForm" :model="params" label-position="top" class="params" @submit.prevent="saveParams">
         <el-form-item v-for="p in NUMBER_PARAMS" :key="p.key" :label="p.label" :prop="p.key">
           <el-input-number v-model="params[p.key]" :min="p.min" :max="p.max" :step="1" step-strictly value-on-clear="min" />
           <span class="ev-muted range">{{ p.min }}–{{ p.max }}{{ p.unit ?? '' }}</span>

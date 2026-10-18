@@ -30,7 +30,10 @@ async def test_defaults_when_absent(db):
         "历史": "统编版",
         "道德与法治": "统编版",
     }
-    assert (await get_generation_params(db)).illustrations_per_minute == 4
+    assert (await get_generation_params(db)).model_dump() == {
+        'max_concurrent_jobs': 2, 'max_retries': 2,
+        'duration_tolerance_pct': 15, 'long_term_memory_enabled': True,
+    }
     assert (await get_registration(db)).open is True
 
 
@@ -72,6 +75,33 @@ def test_default_by_subject_must_reference_options():
     assert "默认值必须在可选值中" in str(exc.value)
 
 
-def test_visuals_max_ge_min():
+async def test_legacy_generation_settings_ignore_retired_counts(db, admin_client):
+    from app.models import SystemSetting
+    row = SystemSetting(key='generation_params', value={
+        'segment_visuals_min': 8, 'segment_visuals_max': 2,
+        'illustrations_per_minute': 4, 'max_concurrent_jobs': 3,
+        'max_retries': 1, 'duration_tolerance_pct': 20, 'long_term_memory_enabled': False,
+    })
+    db.add(row)
+    await db.commit()
+    expected = {'max_concurrent_jobs': 3, 'max_retries': 1,
+        'duration_tolerance_pct': 20, 'long_term_memory_enabled': False}
+    endpoint = '/api/admin/settings/generation-params'
+    response = await admin_client.get(endpoint)
+    assert response.status_code == 200
+    assert response.json() == expected
+    response = await admin_client.put(endpoint, json={**row.value, 'max_concurrent_jobs': 4})
+    assert response.status_code == 200
+    assert response.json() == {**expected, 'max_concurrent_jobs': 4}
+    await db.refresh(row)
+    assert row.value == {**expected, 'max_concurrent_jobs': 4}
+
+
+@pytest.mark.parametrize('values', [
+    {'max_concurrent_jobs': 0}, {'max_concurrent_jobs': 21},
+    {'max_retries': -1}, {'max_retries': 6},
+    {'duration_tolerance_pct': 4}, {'duration_tolerance_pct': 51},
+])
+def test_retained_generation_limits_are_validated(values):
     with pytest.raises(ValidationError):
-        GenerationParams(segment_visuals_min=5, segment_visuals_max=4)
+        GenerationParams(**values)

@@ -93,9 +93,6 @@ export type FieldConfig = {
 export type FormFieldsConfig = { fields: FieldConfig[] }
 
 export type GenerationParams = {
-  segment_visuals_min: number
-  segment_visuals_max: number
-  illustrations_per_minute: number
   max_concurrent_jobs: number
   max_retries: number
   duration_tolerance_pct: number
@@ -120,7 +117,7 @@ export function putGenerationParams(p: GenerationParams): Promise<GenerationPara
 
 // ---------- 模型配置 ----------
 
-export type Purpose = 'outline_llm' | 'review_llm' | 'vision_llm' | 'image_gen' | 'embedding' | 'tts' | 'web_search'
+export type Purpose = 'outline_llm' | 'review_llm' | 'vision_llm' | 'embedding' | 'tts' | 'web_search'
 
 export type ApiKeyStatus = 'set' | 'missing' | 'undecryptable'
 

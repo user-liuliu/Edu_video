@@ -4,7 +4,7 @@ from langgraph.types import interrupt
 from .schemas import OutlineData
 from .review import validate_verdict
 from .evidence import enforce_evidence
-from .policy import validate_visual_counts,apply_duration_warning
+from .policy import apply_duration_warning
 
 class OutlineState(TypedDict,total=False):
     prompt: str
@@ -23,7 +23,6 @@ def build_outline_graph(checkpointer,generate,review,store=None):
         if state.get('operation')=='review': return {}
         result=await generate(state)
         data=OutlineData.model_validate(result).model_dump(mode='json')
-        validate_visual_counts(data,state.get('generation_params'))
         old={s['id']:s for s in state.get('outline',{}).get('segments',[])}
         if state.get('operation')=='rewrite':
             ids=set(state['segment_ids']); generated={s['id']:s for s in data['segments']}
@@ -40,7 +39,6 @@ def build_outline_graph(checkpointer,generate,review,store=None):
         return {'outline':enforce_evidence(data,state.get('evidence',[]))}
 
     async def audit(state):
-        validate_visual_counts(state['outline'],state.get('generation_params'))
         results=await review(state)
         data={**state['outline'], **OutlineData.model_validate(state['outline']).model_dump(mode='json')}
         selected=set(state.get('segment_ids',[]))

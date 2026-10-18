@@ -1,10 +1,4 @@
 """将管理员生成参数落实到大纲校验和教师可见提示。"""
-def validate_visual_counts(outline, params):
-    if not params:return
-    low,high=params['segment_visuals_min'],params['segment_visuals_max']
-    if any(not low<=len(s['visuals'])<=high for s in outline['segments']):
-        raise ValueError(f'每段画面数必须在 {low}—{high} 之间，请调整后重新审核')
-
 def apply_duration_warning(outline, form_values, params):
     prefix='时长偏差：'
     for s in outline['segments']:

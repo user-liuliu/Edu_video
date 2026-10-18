@@ -7,7 +7,6 @@ class Purpose(StrEnum):
     outline_llm = "outline_llm"
     review_llm = "review_llm"
     vision_llm = "vision_llm"
-    image_gen = "image_gen"
     embedding = "embedding"
     tts = "tts"
     web_search = "web_search"
@@ -18,7 +17,6 @@ PURPOSE_LABELS: dict[Purpose, str] = {
     Purpose.outline_llm: "写大纲/讲稿",
     Purpose.review_llm: "审核",
     Purpose.vision_llm: "看图识别",
-    Purpose.image_gen: "画插图",
     Purpose.embedding: "Embedding",
     Purpose.tts: "配音",
     Purpose.web_search: "联网搜索",
@@ -30,7 +28,6 @@ REQUIRED_PURPOSES: frozenset[Purpose] = frozenset(
         Purpose.outline_llm,
         Purpose.review_llm,
         Purpose.vision_llm,
-        Purpose.image_gen,
         Purpose.tts,
     }
 )
