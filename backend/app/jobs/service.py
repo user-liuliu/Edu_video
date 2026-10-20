@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import require_active_user
 from app.db import get_session
 from app.errors import api_error
-from app.models import OutlineJob, User
+from app.models import OutlineJob, User, VideoVersion
 
 
 class JobView(BaseModel):
@@ -21,6 +21,7 @@ class JobView(BaseModel):
     status: str
     stage: str
     progress: int
+    workflow: str | None = None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
@@ -104,4 +105,5 @@ async def get_job(job_id: UUID, db=Depends(get_session), user: User=Depends(requ
     job = await db.scalar(select(OutlineJob).where(OutlineJob.id == job_id, OutlineJob.owner_id == user.id))
     if not job:
         raise api_error(404, 'job_not_found', '任务不存在')
-    return JobView.model_validate(job)
+    version=await db.scalar(select(VideoVersion).where(VideoVersion.job_id==job.id)) if job.kind=='video' else None
+    return JobView.model_validate(job).model_copy(update={'workflow':version.snapshot.get('workflow') if version else None})

@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "animation-principles": {
+      "repository": "https://github.com/iart-ai/motion-design-skills",
+      "commit": "3c129f769d90a1328c209c386492333c9ac62312",
+      "upstream_path": "skills/animation-principles",
+      "license": "MIT",
+      "files": {
+        "LICENSE": "33d6cd35a20903b5e968a76a1e584a7aeae2c83e3e58ea58ecc50b889b83e668",
+        "README.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "SKILL.md": "21637766f8ae115f427ab086ec903106b3dfa5eac7fdf05d9926e4b557bff892",
+        "references/easing-curves.md": "0eb670fbd2b456f0bc90d52a2ba7365452b3061857cd52dc6ab579422d21b11b",
+        "references/easing-graph-editor.md": "97f8cb0a5488a449850dda02bc6aff9327a97273ac39ca46d7e275673405184d",
+        "references/twelve-principles.md": "5198dde91aa694e411de476ea811d555c7a665b7d72233fa7d80c3bd9f88b9b8"
+      }
+    },
+    "svg-animation": {
+      "repository": "https://github.com/iart-ai/web-animation-skills",
+      "commit": "b6dba3eb759726845a44163ff0bad70dd9e7fbb6",
+      "upstream_path": "skills/svg-animation",
+      "license": "MIT",
+      "files": {
+        "LICENSE": "33d6cd35a20903b5e968a76a1e584a7aeae2c83e3e58ea58ecc50b889b83e668",
+        "README.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "SKILL.md": "90e37f8f3d8c662515952de7a50c9130f5695d1a0cae1501115bd5d253c712c4",
+        "references/svg-techniques.md": "41cff6f8ced2d6f952b08db6d6fb20fb38c27419ff9e28b30668d8ca80b35983"
+      }
+    },
+    "diagram-animation": {
+      "repository": "https://github.com/iart-ai/explainer-video-skills",
+      "commit": "3e2d411b725d9a72939cf8e5eb81579e751373e7",
+      "upstream_path": "skills/diagram-animation",
+      "license": "MIT",
+      "files": {
+        "LICENSE": "33d6cd35a20903b5e968a76a1e584a7aeae2c83e3e58ea58ecc50b889b83e668",
+        "README.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "SKILL.md": "eb4aebe125e1f70608cf365670a618907d5c8f1229e184cdd4e32fdc34a7a8fb",
+        "references/diagram-and-chart-recipes.md": "b5789057a05c8e01914b34352973b9a72582d0cfc7c3d76a35e14600cb851fb8"
+      }
+    },
+    "javascript-animation": {
+      "repository": "https://github.com/iart-ai/javascript-animation-skills",
+      "commit": "f7d0882a313249cbd43f0e4e9e209b1622870253",
+      "upstream_path": "skills/javascript-animation",
+      "license": "MIT",
+      "files": {
+        "LICENSE": "33d6cd35a20903b5e968a76a1e584a7aeae2c83e3e58ea58ecc50b889b83e668",
+        "SKILL.md": "e793b8c561de063356ca1e206113b7de1c1cd6b9bbbbcf2a80d7faeaaa6d4da9",
+        "references/character.md": "104b192db67fe290d33c30ab06066907f10068dace3cf49ee6461c1d3ac188e4",
+        "references/forms.md": "6a5c2e0cbc0eff6f93227dfb3a6f0a42f6f1d1afd737e5b3c896697c41dc40d0",
+        "references/qc.md": "8e4fdd8938e65a0f1af6cc71c21db893cc67cd731a20347767f22f3085130768",
+        "references/storyboard.md": "284f415577ca6b77886e33f8515445e52b16b851cb9411870bca6c0cd10355d0",
+        "references/techniques.md": "1238fb0036ebe6d6269654507b474b5e13f60e3d0003bcda7bc4f11a90d4cbd5"
+      }
+    },
+    "2d-character-rig-animation": {
+      "repository": "https://github.com/calesthio/generative-media-skills",
+      "commit": "8c85352d5d75d4dcbe58480bd138e37b9742bab1",
+      "upstream_path": "skills/production/creative-direction/2d-character-rig-animation",
+      "license": "MIT",
+      "files": {
+        "SKILL.md": "35c5f853b688cd7abd46f8737784bc3fdb790e854bd61875c78d5af6fdb61a22",
+        "LICENSE": "27570f011a5a53e84412bcb6abcce17654c4e2b0e68c3522dca8885de7deaf93"
+      }
+    },
+    "game-graphics": {
+      "repository": "https://github.com/fenre/skills",
+      "commit": "84bdc1dc884290ad78f4607e0e8f2068695377e7",
+      "upstream_path": "game-graphics",
+      "license": "Apache-2.0",
+      "files": {
+        "SKILL.md": "484d1fafb775649772073d7443e18cd0d151f0f9a84ab0a80cc0c4280953dc1b",
+        "LICENSE": "04649a785f68312a6f4179ffed135d53f5e4c1b22cb68ee56d6efbe48d3a4beb",
+        "concept-art-reference.md": "1f7110f239363137810c477d5a2523ef349b8f07524098c31a8d7f2b567a3c96",
+        "pixel-art-reference.md": "e6e1e65086c944670c410f7490064d918714a2f56660c84ed77d19de00d61a60",
+        "animation-reference.md": "b56a22fba90b5b4abc5817f30640aeb3dc3251c7a72e1245e3e52d3669288f9d"
+      }
+    }
+  }
+}

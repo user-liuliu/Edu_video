@@ -78,12 +78,12 @@ async function pollOutlineNotification() {
       .sort((a, b) => (Date.parse(a.job.updated_at ?? '') || 0) - (Date.parse(b.job.updated_at ?? '') || 0))
     for (const {item, job} of ordered) {
       try {
-        if (job.id !== item.jobId || job.kind !== 'generate' || ['failed', 'cancelled'].includes(job.status)) {
+        if (job.id !== item.jobId || !['generate','video','video_export'].includes(job.kind) || ['failed', 'cancelled'].includes(job.status)) {
           removePendingOutlineNotification(item.jobId)
         } else if (job.status === 'succeeded') {
           const outline = await getOutline(item.projectId)
           removePendingOutlineNotification(item.jobId)
-          outlineCompletionMessages.push(`${outline.title ?? '项目'}的视频大纲已经生成完毕`)
+          outlineCompletionMessages.push((outline.title ?? '项目')+(job.kind==='video_export'?'的MP4已导出完成':job.kind==='video'?(job.workflow==='html-preview-1'||outline.status==='preview_ready'?'的动画预览已就绪':'的视频已经生成完毕'):'的视频大纲已经生成完毕'))
         } else {
           shouldRetry = true
         }
@@ -106,7 +106,7 @@ function handleOutlineNotificationPending() {
 }
 
 const activeTeacherKey = computed(() => {
-  if (['project-create', 'project-edit', 'project-outline'].includes(String(route.name))) return 'make'
+  if (['project-create', 'project-edit', 'project-outline', 'project-video'].includes(String(route.name))) return 'make'
   if (route.name === 'project-drafts') return 'drafts'
   if (route.name === 'preferences') return 'memory'
   return String(route.query.section ?? 'videos')

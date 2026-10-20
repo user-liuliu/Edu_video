@@ -12,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-impress libreoffice-writer libseccomp2 fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://deb.debian.org|https://mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends espeak-ng ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # 先只装依赖（不含 dev 组），代码变动时能复用这一层缓存
 COPY pyproject.toml uv.lock .python-version ./

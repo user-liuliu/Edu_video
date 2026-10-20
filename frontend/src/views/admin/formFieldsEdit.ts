@@ -12,7 +12,6 @@ export const OPTION_FIELDS: readonly FieldKey[] = [
   'textbook_edition',
   'duration',
   'aspect_ratio',
-  'style',
 ]
 
 export function cloneConfig<T>(v: T): T {

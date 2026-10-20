@@ -62,7 +62,7 @@ def _http_failure(response):
         category, message = 'permission', '模型服务拒绝访问，请管理员检查模型权限'
     elif status == 429:
         category, message = 'rate_limit', '模型服务请求过于频繁或暂时超出限额，请稍后重试'
-    elif status == 408:
+    elif status in (408, 504, 524):
         category, message = 'timeout', '模型服务请求超时，请稍后重试'
     elif 500 <= status < 600:
         category, message = 'unavailable', '模型服务暂时异常，请稍后重试'

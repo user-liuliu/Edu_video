@@ -7,7 +7,7 @@ from sqlalchemy import select, update, delete, func, text
 
 from app.config import get_settings
 from app.db import create_engine, create_sessionmaker
-from app.models import OutlineJob, Material, MaterialChunk, User, VideoProject
+from app.models import OutlineJob, Material, MaterialChunk, User, VideoProject, VideoVersion
 from app.materials.storage import MaterialStorage
 from .celery_app import celery_app
 from .dispatcher import dispatch_pending, cleanup_objects
@@ -115,12 +115,17 @@ async def run_job(job_id, settings=None):
                 job.lease_token=None
                 if job.kind=='parse':
                     await db.execute(update(Material).where(Material.id==UUID(job.payload['material_id']),Material.owner_id==job.owner_id).values(status='failed',error_message=job.error_message))
+                elif job.kind=='video_export':
+                    await db.execute(update(VideoProject).where(VideoProject.id==job.project_id,VideoProject.owner_id==job.owner_id,VideoProject.revision==job.expected_revision).values(status='preview_ready'))
+                elif job.kind=='video':
+                    await db.execute(update(VideoVersion).where(VideoVersion.job_id==job.id).values(status='failed'))
+                    await db.execute(update(VideoProject).where(VideoProject.id==job.project_id,VideoProject.owner_id==job.owner_id,VideoProject.revision==job.expected_revision).values(status='video_failed'))
                 else:
                     await db.execute(update(VideoProject).where(VideoProject.id==job.project_id,VideoProject.owner_id==job.owner_id,VideoProject.revision==job.expected_revision).values(status='failed'))
                 await db.commit(); return
             token=uuid4()
             job.lease_token,job.lease_until=token,now+timedelta(seconds=90)
-            job.status,job.stage='running','解析素材' if job.kind=='parse' else '准备大纲'
+            job.status,job.stage='running','解析素材' if job.kind=='parse' else '准备导出' if job.kind=='video_export' else '准备视频' if job.kind=='video' else '准备大纲'
             job.progress=max(job.progress,5)
             job.attempts += 1
             await db.commit()
@@ -131,6 +136,12 @@ async def run_job(job_id, settings=None):
                 if not owner or owner.status != 'active': raise ValueError('账号状态已变化，无法继续执行')
                 if job.kind=='parse':
                     await parse_job(db,job,settings,MaterialStorage(settings))
+                elif job.kind=='video_export':
+                    from app.videos.direct_pipeline import execute_direct_export
+                    await execute_direct_export(db,job,settings)
+                elif job.kind=='video':
+                    from app.videos.pipeline import execute_video_job
+                    await execute_video_job(db,job,settings)
                 else:
                     from app.outline.service import execute_outline_job
                     await execute_outline_job(db,job,settings)
@@ -145,6 +156,11 @@ async def run_job(job_id, settings=None):
                 if changed.rowcount:
                     if kind=='parse':
                         await db.execute(update(Material).where(Material.id==UUID(payload['material_id']),Material.owner_id==owner_id).values(status='failed',error_message=message[:500]))
+                    elif kind=='video_export':
+                        await db.execute(update(VideoProject).where(VideoProject.id==project_id,VideoProject.owner_id==owner_id,VideoProject.revision==expected_revision).values(status='preview_ready'))
+                    elif kind=='video':
+                        await db.execute(update(VideoVersion).where(VideoVersion.job_id==UUID(str(job_id))).values(status='failed'))
+                        await db.execute(update(VideoProject).where(VideoProject.id==project_id,VideoProject.owner_id==owner_id,VideoProject.revision==expected_revision).values(status='video_failed'))
                     else:
                         await db.execute(update(VideoProject).where(VideoProject.id==project_id,VideoProject.owner_id==owner_id,VideoProject.revision==expected_revision).values(status='failed'))
                 await db.commit()

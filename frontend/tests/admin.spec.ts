@@ -64,7 +64,6 @@ function formFields(): FormFieldsConfig {
         ],
       }),
       f('aspect_ratio', '视频尺寸', { default: '16:9', options: opts('16:9', '9:16') }),
-      f('style', '讲解风格', { default: 'auto', options: [{ value: 'auto', label: '按科目自动', subjects: null }] }),
       f('voice', '配音声音'),
       f('web_search', '允许联网搜索', { default: true }),
     ],
@@ -165,6 +164,22 @@ async function mountTab(c: Component): Promise<VueWrapper> {
   await flushPromises()
   return w
 }
+
+test('page configuration omits legacy explanation style and does not submit it again', async () => {
+  const legacy=formFields()
+  legacy.fields.push({key:'style',label:'讲解风格',visible:true,default:'auto',options:[],default_by_subject:{}} as unknown as FieldConfig)
+  m.getFormFields.mockResolvedValue(legacy)
+  const w=await mountTab(PageConfigTab)
+  expect(w.text()).not.toContain('讲解风格')
+  expect(w.text()).toContain('配音声音')
+  m.putFormFields.mockImplementation(async cfg=>cfg)
+  const save=w.findAll('button').find(b=>b.text()==='保存')
+  expect(save).toBeDefined()
+  await save!.trigger('click');await flushPromises()
+  expect(m.putFormFields).toHaveBeenCalled()
+  expect(m.putFormFields.mock.calls[0]![0].fields.some((f: {key:string})=>f.key==='style')).toBe(false)
+  w.unmount()
+})
 
 type Scope = VueWrapper | DOMWrapper<Element>
 

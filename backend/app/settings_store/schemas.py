@@ -1,7 +1,7 @@
 """系统设置的数据结构：新建视频页面配置、生成参数、注册开关。"""
 
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -16,7 +16,6 @@ class FieldKey(StrEnum):
     textbook_edition = "textbook_edition"
     duration = "duration"
     aspect_ratio = "aspect_ratio"
-    style = "style"
     voice = "voice"
     web_search = "web_search"
 
@@ -28,7 +27,6 @@ OPTION_FIELDS: tuple[FieldKey, ...] = (
     FieldKey.textbook_edition,
     FieldKey.duration,
     FieldKey.aspect_ratio,
-    FieldKey.style,
 )
 
 DEFAULT_NOT_IN_OPTIONS = "默认值必须在可选值中"
@@ -53,6 +51,15 @@ class FieldConfig(BaseModel):
 
 class FormFieldsConfig(BaseModel):
     fields: list[FieldConfig]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _retire_explanation_style(cls, data: Any) -> Any:
+        # 旧数据库配置及旧客户端仍可能带此项；解析前移除，不改动输入对象。
+        if isinstance(data, dict) and isinstance(data.get('fields'), list):
+            return {**data, 'fields': [f for f in data['fields']
+                if not (isinstance(f, dict) and f.get('key') == 'style')]}
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> Self:

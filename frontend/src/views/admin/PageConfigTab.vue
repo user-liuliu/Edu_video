@@ -38,7 +38,7 @@ async function load() {
   loadError.value = ''
   try {
     const [fields, p] = await Promise.all([getFormFields(), getGenerationParams()])
-    cfg.value = cloneConfig(fields)
+    cfg.value = cloneConfig({ ...fields, fields: fields.fields.filter(f => String(f.key) !== 'style') })
     params.value = { ...p }
   } catch (e) {
     loadError.value = errorText(e)
@@ -195,7 +195,7 @@ const NUMBER_PARAMS: { key: NumberParam; label: string; min: number; max: number
               </td>
 
               <!-- 配音声音：音色来自模型配置里的 tts 一项 -->
-              <td v-if="f.key === 'voice'" colspan="2" class="ev-muted">音色在模型配置中维护</td>
+              <td v-if="f.key === 'voice'" colspan="2" class="ev-muted">模型音色在模型配置中维护；系统配音由服务器提供，不需要模型密钥</td>
               <template v-else>
                 <td class="default-cell">
                   <el-switch

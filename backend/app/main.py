@@ -22,6 +22,7 @@ from app.materials.router import router as materials_router
 from app.jobs.service import router as jobs_router
 from app.outline.router import router as outline_router
 from app.preferences.router import router as preferences_router
+from app.videos.router import router as videos_router
 from app.redis_client import create_redis
 from app.security import SecretBox
 
@@ -71,5 +72,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs_router)
     app.include_router(outline_router)
     app.include_router(preferences_router)
+    app.include_router(videos_router)
 
     return app

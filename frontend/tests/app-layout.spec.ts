@@ -234,3 +234,34 @@ test('failed jobs do not show a completion reminder', async () => {
   expect(completionReminders()).toHaveLength(0)
   expect(sessionStorage.getItem('edu-video:outline-job-notification')).toBeNull()
 })
+
+test('outline and video completions share a sequential three second reminder queue',async()=>{
+  vi.useFakeTimers()
+  notificationJobs(['j1','j2'])
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+    if(url.includes('/api/jobs/')){
+      const id=url.split('/').pop()!
+      return new Response(JSON.stringify({...jobResponse(id,'succeeded'),kind:id==='j1'?'generate':'video',updated_at:id==='j2'?'2026-10-18T00:00:01Z':'2026-10-18T00:00:02Z'}))
+    }
+    return new Response(JSON.stringify(outlineResponse('p1','函数')))
+  }))
+  await mountAs('teacher','/projects');await flushPromises()
+  expect(completionReminders()[0]!.textContent).toContain('函数的视频已经生成完毕')
+  await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+  expect(completionReminders()[0]!.textContent).toContain('函数的视频大纲已经生成完毕')
+  await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+  expect(completionReminders()).toHaveLength(0)
+})
+
+
+test('preview and export completions join the same ordered reminder queue',async()=>{
+ vi.useFakeTimers();notificationJobs(['j1','j2'])
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+  if(url.includes('/api/jobs/')){const id=url.split('/').pop()!;return new Response(JSON.stringify({...jobResponse(id,'succeeded'),kind:id==='j1'?'video':'video_export',payload:{workflow:'html-preview-1'},updated_at:id==='j1'?'2026-10-18T00:00:01Z':'2026-10-18T00:00:02Z'}))}
+  return new Response(JSON.stringify({...outlineResponse('p1','函数'),status:'preview_ready'}))
+ }))
+ await mountAs('teacher','/projects');await flushPromises()
+ expect(completionReminders()[0]?.textContent).toContain('函数的动画预览已就绪')
+ await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+ expect(completionReminders()[0]?.textContent).toContain('函数的MP4已导出完成')
+})

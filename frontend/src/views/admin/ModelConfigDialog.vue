@@ -159,7 +159,7 @@ async function onSave() {
 
       <fieldset v-if="isTts" class="voices">
         <legend>音色列表</legend>
-        <p class="ev-muted voices-desc">老师在"新建视频"页面的"配音声音"从这里选择。</p>
+        <p class="ev-muted voices-desc">这里维护模型配音音色。老师也可以选择服务器提供的系统配音，系统配音无需配置模型密钥。</p>
         <table v-if="form.voices.length" class="voice-table">
           <thead>
             <tr>

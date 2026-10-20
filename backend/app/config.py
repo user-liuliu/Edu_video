@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     minio_bucket: str = 'edu-materials'
     temp_dir: str = '/tmp'
+    renderer_url: str = ''
     agent_schema: str = 'agent_state'
     upload_file_bytes: int = 25 * 1024 * 1024
     upload_project_bytes: int = 100 * 1024 * 1024

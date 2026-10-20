@@ -25,6 +25,7 @@ export const router = createRouter({
         { path: 'projects/new', name: 'project-create', component: () => import('../views/workbench/CreateVideoView.vue') },
         { path: 'projects/:id/edit', name: 'project-edit', component: () => import('../views/workbench/CreateVideoView.vue') },
         { path: 'projects/:id/outline', name: 'project-outline', component: () => import('../views/workbench/OutlineView.vue') },
+        { path: 'projects/:id/video', name: 'project-video', component: () => import('../views/workbench/VideoPreviewView.vue') },
         { path: 'projects', name: 'project-list', component: () => import('../views/workbench/ProjectListView.vue') },
         { path: 'drafts', name: 'project-drafts', component: () => import('../views/workbench/ProjectListView.vue') },
         { path: 'preferences', name: 'preferences', component: () => import('../views/workbench/PreferencesView.vue') },

@@ -191,3 +191,23 @@ test('editing one reviewed segment marks only that segment pending and reverting
   expect(w.findAll('.segment header .el-tag').map(t=>t.text())).toEqual(['AI已审核','AI已审核'])
  }finally{w.unmount()}
 })
+
+
+test('visual guidance describes each editor and editing a visual requires review again',async()=>{
+ const segment={id:'s1',position:0,title:'观察图像',objective:'理解斜率',narration:'截距不变，斜率增大，直线变陡。',visuals:[{kind:'数学图形',description:'截距保持为1，斜率由1变为2。'},{kind:'文字卡',description:'比较变化后的直线。'}],evidence_ids:[],content_kind:'knowledge',review_notes:[],content_revision:1,reviewed_revision:1,review_passed:true,review_issues:[],estimated_duration_seconds:6}
+ const outline={project_id:'p1',revision:2,status:'outline_ready',needs_save:false,segments:[segment]}
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(outline))))
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/outline',component:OutlineView}]})
+ await router.push('/projects/p1/outline')
+ const w=mount(OutlineView,{global:{plugins:[router,ElementPlus]}});await flushPromises()
+ try{
+  for(const field of w.findAll('textarea[aria-label^="画面描述"]')){
+   const ids=field.attributes('aria-describedby')?.split(/\s+/).filter(Boolean)
+   expect(ids?.length).toBeGreaterThan(0)
+   for(const id of ids??[])expect(w.get('#'+id).text().length).toBeGreaterThan(0)
+  }
+  await w.get('[aria-label="画面描述 1-1"]').setValue('保持截距不变，讲到斜率增大时让直线逐渐变陡。')
+  expect(w.get('.segment header .el-tag').text()).toBe('待审核')
+  expect((w.get('[aria-label="画面描述 1-2"]').element as HTMLTextAreaElement).value).toBe('比较变化后的直线。')
+ }finally{w.unmount()}
+})

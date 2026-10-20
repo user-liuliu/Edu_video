@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Float,
     MetaData,
     String,
     Text,
@@ -208,3 +209,36 @@ class ObjectCleanup(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     object_key: Mapped[str] = mapped_column(String(512), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VideoVersion(Base):
+    __tablename__ = 'video_versions'
+    __table_args__ = (UniqueConstraint('project_id', 'number', name='uq_video_version_number'),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('video_projects.id', ondelete='CASCADE'), index=True)
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('outline_jobs.id', ondelete='CASCADE'), unique=True)
+    source_version_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey('video_versions.id', ondelete='SET NULL'))
+    number: Mapped[int] = mapped_column(Integer)
+    outline_revision: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default='queued', server_default='queued')
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    media_key: Mapped[str | None] = mapped_column(String(512))
+    asset_keys: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    duration: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VideoSegment(Base):
+    __tablename__ = 'video_segments'
+    __table_args__ = (UniqueConstraint('version_id', 'position', name='uq_video_segment_position'),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    version_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('video_versions.id', ondelete='CASCADE'), index=True)
+    outline_segment_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    position: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(200))
+    narration: Mapped[str] = mapped_column(Text)
+    start: Mapped[float | None] = mapped_column(Float)
+    end: Mapped[float | None] = mapped_column(Float)
+    fingerprint: Mapped[str] = mapped_column(String(64), default='', server_default='')
+    assets: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))

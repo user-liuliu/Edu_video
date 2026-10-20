@@ -66,7 +66,7 @@ async def test_list_defaults_details(admin_client, db):
     assert "image_gen" not in items
     assert items["outline_llm"]["label"] == "写大纲/讲稿"
     for p, item in items.items():
-        assert item["required"] is (Purpose(p) in REQUIRED_PURPOSES)
+        assert item["required"] is (Purpose(p) in REQUIRED_PURPOSES and p!='tts')
         assert item["enabled"] is False
         assert item["api_key_status"] == "missing" and item["api_key_masked"] is None
         assert item["voices"] == [] and item["last_test_ok"] is None

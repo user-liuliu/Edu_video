@@ -8,7 +8,7 @@ from app.models import Material, OutlineJob, VideoProject
 
 
 async def submit_with_material(db, teacher_client, monkeypatch, status='stored'):
-    async def available(*args):
+    async def available(*args, **kwargs):
         return True
     monkeypatch.setattr('app.outline.service.system_available', available)
     data = (await teacher_client.post('/api/projects', json={'prompt': '串联电路'})).json()

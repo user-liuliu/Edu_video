@@ -1,0 +1,8 @@
+fastapi==0.143.2
+uvicorn==0.54.0
+pydantic==2.14.1
+httpx==0.28.1
+playwright==1.64.0
+pillow==12.3.0
+numpy==2.5.4
+imageio-ffmpeg==0.6.0
