@@ -21,6 +21,46 @@ def _field(fields: list[dict], key: str) -> dict:
     return next(f for f in fields if f["key"] == key)
 
 
+def test_retired_explanation_style_is_not_a_form_field():
+    assert 'style' not in {field.key for field in DEFAULT_FORM_FIELDS.fields}
+
+
+def test_legacy_style_config_is_ignored_without_mutating_input():
+    fields = [f for f in _fields_dump() if f['key'] != 'style']
+    fields.append({'key': 'style', 'default': 'removed-custom-style'})
+    config = FormFieldsConfig.model_validate({'fields': fields})
+    assert 'style' not in {field.key for field in config.fields}
+    assert fields[-1] == {'key': 'style', 'default': 'removed-custom-style'}
+
+
+def test_retired_style_submission_is_ignored_and_voice_is_preserved():
+    from app.model_configs.schemas import Voice
+    from app.settings_store.form_values import resolve_form_values
+    values = resolve_form_values(DEFAULT_FORM_FIELDS, {'style': 'old-custom-style', 'voice': 'v1'},
+        voices=[Voice(speaker_id='v1', label='温和女声')], search_ready=False)
+    assert 'style' not in values
+    assert values['voice'] == 'v1'
+
+
+async def test_legacy_form_config_is_retired_in_admin_public_and_saved_settings(db, admin_client, teacher_client):
+    from app.models import SystemSetting
+    fields = [f for f in _fields_dump() if f['key'] != 'style']
+    fields.append({'key': 'style', 'default': 'old-custom-style'})
+    row = SystemSetting(key='form_fields', value={'fields': fields})
+    db.add(row)
+    await db.commit()
+    for path in ('/api/admin/settings/form-fields', '/api/config/form'):
+        client = admin_client if '/admin/' in path else teacher_client
+        response = await client.get(path)
+        assert response.status_code == 200, response.text
+        assert 'style' not in {f['key'] for f in response.json()['fields']}
+    saved = await admin_client.put('/api/admin/settings/form-fields', json={'fields': fields})
+    assert saved.status_code == 200, saved.text
+    await db.refresh(row)
+    assert 'style' not in {f['key'] for f in row.value['fields']}
+    assert _field(row.value['fields'], 'subject')['default'] == '数学'
+
+
 async def test_defaults_when_absent(db):
     f = {x.key: x for x in (await get_form_fields(db)).fields}
     assert f["subject"].default == "数学" and f["grade"].default == "初三"

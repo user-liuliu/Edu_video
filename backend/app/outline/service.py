@@ -47,7 +47,7 @@ async def start_outline(db,user,project_id,body,kind,box):
     await require_idle(db,project,allow_parse=kind=='generate')
     params=await get_generation_params(db)
     await require_generation_capacity(db,user.id,params.max_concurrent_jobs)
-    if not await system_available(db,box): raise api_error(409,'system_unavailable','系统暂不可用，请联系管理员')
+    if not await system_available(db,box,voice=project.form_values.get('voice')): raise api_error(409,'system_unavailable','系统暂不可用，请联系管理员')
     from app.projects.router import submission_policy
     cfg, _, _, version = await submission_policy(db,box)
     materials_enabled=next(f.visible for f in cfg.fields if f.key=='materials')
@@ -168,6 +168,13 @@ async def execute_outline_job(db,job,settings):
                 await update_job_progress(db,job.id,lease_token,45,'改写大纲' if job.kind=='rewrite' else '生成大纲')
                 selected=set(state.get('segment_ids',[]))
                 instruction=('生成完整分段大纲，包含开场和小结，每段有完整可直接朗读的逐字稿。'
+                    '时长按讲稿长度估算：中文约每秒3.5字、英文约每秒2.2词，统筹目标总时长与允许偏差。'
+                    'estimated_duration_seconds由服务端计算，不能通过填写该字段调整时长；需要调整时应修改讲稿长度。'
+                    '画面说明写清展示对象、关键变化和希望学生理解的含义，用教师能理解的自然语言，不要求坐标、运动曲线或逐秒分镜。'
+                    '理科说明保持不变的条件、发生变化的量及结果；文科说明人物关系、关键行为、物品归属和故事含义，仅在内容涉及这些要素时补充。'
+                    '例如：保持截距不变，让斜率从1增大到2，展示直线变陡；或孔融把较大的梨递给哥哥，自己留下较小的梨。示例不是所有内容必须套用的模板。'
+                    '公式可用自然语言描述，由后续模型生成图形；必要的数值、单位、条件或结论应在大纲中明确，不凭空补充。'
+                    '画面使用相对旁白的动作顺序描述，避免写死全片绝对秒数；真实配音后按逐句讲解含义安排时间轴。'
                     '画面可选插图/数学图形/公式/学科示意图/文字卡，按教学内容与旁白节奏安排画面描述，不为凑数量重复画面。'
                     '画面描述用于后续HTML动画编排；插图表示视觉表达类型，不要求调用生图模型。'
                     'content_kind 为 knowledge/fact/reenactment。仅引用给定依据 UUID。'
@@ -190,13 +197,23 @@ async def execute_outline_job(db,job,settings):
                 await update_job_progress(db,job.id,lease_token,80,'审核大纲')
                 selected=set(state.get('segment_ids',[]))
                 segments=[s for s in state['outline']['segments'] if not selected or s['id'] in selected]
+                review_segments=[{k:v for k,v in s.items() if k!='estimated_duration_seconds'} for s in segments]
+                timing_policy={'estimate_owner':'server',
+                    'segment_estimates_seconds':{s['id']:s['estimated_duration_seconds'] for s in state['outline']['segments']},
+                    'target_seconds':state['form_values'].get('duration_seconds'),
+                    'duration_tolerance_pct':params.duration_tolerance_pct}
                 result=await chat_json(reviewer,[{'role':'user','content':
                     '独立审核以下教学大纲的事实、公式、年级、出处、情景演绎和多音字。不能把搜索摘要当成事实已核实。'
                     '返回 {"items":[{"segment_id":"段落UUID","passed":true,"issues":[],"notes":["普通建议"]}]}。'
                     '每段必须返回一项。有事实、公式、年级适配、误导性表述等必须修改的问题时passed=false，issues必须给出具体原因；'
                     '没有必须修改的问题时passed=true且issues为空。普通教学建议、出处仍需教师核对等提醒放在notes，不直接判未通过。'
                     'issues和notes无内容时用空数组，不能遗漏passed字段。'
-                    +json.dumps({'segments':segments,'form_values':state['form_values'],'evidence':state['evidence']},ensure_ascii=False)}],params.max_retries,client=http,response_schema=REVIEW_RESPONSE_SCHEMA)
+                    '时长契约：timing_policy中的时长是服务端依据字数计算的粗估，不是模型可修改的字段，不得要求直接改估算数字。'
+                    '大纲中的画面秒数也只是编排预估，最终按真实配音统一缩放；不要仅因画面秒数和字数估算不相等而拒绝。'
+                    '总时长按管理员duration_tolerance_pct容差判断，不要求精确等于目标；偏差或节奏建议写入notes，建议调整讲稿长度，不能要求伪改估算值。'
+                    '仍须独立审核事实、公式、完整动作、先后因果和讲稿画面语义是否一致，时长预估不豁免内容问题。'
+                    '审核画面说明能否表达教学目标与关键变化，不要求教师提供坐标、逐秒动作或专业分镜；不因自然语言描述、未指定组件或装饰形式不同而拒绝。待审核资料：'
+                    +json.dumps({'segments':review_segments,'timing_policy':timing_policy,'form_values':state['form_values'],'evidence':state['evidence']},ensure_ascii=False)}],params.max_retries,client=http,response_schema=REVIEW_RESPONSE_SCHEMA)
                 return normalize_review_results(result, [s['id'] for s in segments])
             async with AsyncPostgresSaver.from_conn_string(checkpoint_url(settings)) as saver, AsyncPostgresStore.from_conn_string(checkpoint_url(settings)) as store:
                 preferences=[]

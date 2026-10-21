@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 # package-lock.json 里的 resolved 地址已经指向 registry.npmmirror.com
 RUN npm ci --registry=https://registry.npmmirror.com
 COPY . .
-RUN npm run build
+RUN NODE_OPTIONS=--max-old-space-size=768 npm run build
 
 # 第二阶段：nginx 托管 dist，并把 /api/ 转发给后端
 FROM nginx:1.27-alpine

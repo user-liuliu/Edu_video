@@ -54,7 +54,10 @@ def _public_field(cfg: dict, key: str) -> dict | None:
 
 async def test_admin_form_fields_roundtrip_and_validation(admin_client):
     cfg = await _form(admin_client)
-    assert len(cfg["fields"]) == 10
+    assert {f['key'] for f in cfg['fields']} == {
+        'prompt', 'materials', 'subject', 'grade', 'textbook_edition',
+        'duration', 'aspect_ratio', 'voice', 'web_search',
+    }
     _field(cfg, "aspect_ratio")["visible"] = False
     r = await admin_client.put(FORM_URL, json=cfg)
     assert r.status_code == 200, r.text
@@ -89,20 +92,22 @@ async def test_public_field_shape(teacher_client):
 
 
 async def test_public_voice_options_from_tts(teacher_client, admin_client):
-    # tts 没配好时不返回 voice 字段
-    assert _public_field(await _public(teacher_client), "voice") is None
+    # Offline system speech does not depend on a TTS model.
+    offline={"value":"system:zh-CN","label":"系统配音（离线普通话）","subjects":None}
+    assert _public_field(await _public(teacher_client), "voice")['options']==[offline]
 
     await put(admin_client, "tts", **_full("tts"))
     voice = _public_field(await _public(teacher_client), "voice")
     assert voice["options"] == [
         {"value": "zh_female_1", "label": "女声 1", "subjects": None},
         {"value": "zh_male_2", "label": "男声 2", "subjects": None},
+        offline,
     ]
     assert voice["default"] == "zh_female_1"
 
-    # tts 停用后音色还在库里，但不再返回 voice 字段
+    # Disabled model voices disappear; offline system speech remains.
     await put(admin_client, "tts", **_full("tts", enabled=False))
-    assert _public_field(await _public(teacher_client), "voice") is None
+    assert _public_field(await _public(teacher_client), "voice")['options']==[offline]
 
     # 管理员隐藏 voice 后，即使 tts 可用也不返回
     await put(admin_client, "tts", **_full("tts"))

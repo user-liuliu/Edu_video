@@ -45,7 +45,14 @@ async def test_persisted_outline_review_and_confirmation(db,teacher_client,setti
                 assert current.stage == ('审核大纲' if config.purpose==Purpose.review_llm else '改写大纲' if observed_job.kind=='rewrite' else '生成大纲')
                 assert current.progress == (80 if config.purpose==Purpose.review_llm else 45)
             calls.append(config.purpose)
-            if config.purpose==Purpose.review_llm:return {'items':[{'segment_id':sid,'passed':True,'issues':[],'notes':['请核对教材']}]}
+            if config.purpose==Purpose.review_llm:
+                import json
+                payload=json.loads(messages[0]['content'].split('待审核资料：',1)[-1])
+                assert payload['timing_policy']['estimate_owner']=='server'
+                assert payload['timing_policy']['duration_tolerance_pct']==15
+                assert 'estimated_duration_seconds' not in payload['segments'][0]
+                assert payload['timing_policy']['segment_estimates_seconds'][sid]>1
+                return {'items':[{'segment_id':sid,'passed':True,'issues':[],'notes':['请核对教材']}]}
             assert '每段画面数在' not in messages[0]['content']
             return {'segments':[{'id':sid,'title':'开场','objective':'理解函数','narration':'同学们好，今天学习二次函数。','visuals':[{'kind':'文字卡','description':'函数表达式'}]*(7 if observed_job.kind=='rewrite' else 1),'evidence_ids':[],'content_kind':'knowledge'}]}
         monkeypatch.setattr('app.outline.service.chat_json',chat)

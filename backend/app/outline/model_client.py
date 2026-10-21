@@ -62,7 +62,7 @@ def _http_failure(response):
         category, message = 'permission', '模型服务拒绝访问，请管理员检查模型权限'
     elif status == 429:
         category, message = 'rate_limit', '模型服务请求过于频繁或暂时超出限额，请稍后重试'
-    elif status == 408:
+    elif status in (408, 504, 524):
         category, message = 'timeout', '模型服务请求超时，请稍后重试'
     elif 500 <= status < 600:
         category, message = 'unavailable', '模型服务暂时异常，请稍后重试'
@@ -93,7 +93,7 @@ def _retry_delay(response, retry_index):
     return min(2 ** retry_index + random.uniform(0, 0.5), 30)
 
 
-async def chat_json(config, messages, retries=2, client=None, response_schema=None, *, request_retries=None):
+async def chat_json(config, messages, retries=2, client=None, response_schema=None, *, request_retries=None, stream=False):
     owned = client is None
     client = client or httpx.AsyncClient(follow_redirects=False)
     json_budget = max(0, min(retries, 5))
@@ -114,11 +114,19 @@ async def chat_json(config, messages, retries=2, client=None, response_schema=No
             response = None
             failure = None
             try:
-                response = await client.post(
-                    url, headers={'Authorization': 'Bearer ' + config.api_key},
-                    json={'model': config.model, 'messages': [{'role': 'system', 'content': SYSTEM}, *messages],
-                          'response_format': response_format, 'max_tokens': 14000}, timeout=150,
-                )
+                payload = {'model': config.model, 'messages': [{'role': 'system', 'content': SYSTEM}, *messages],
+                           'response_format': response_format, 'max_tokens': 14000}
+                headers = {'Authorization': 'Bearer ' + config.api_key}
+                if stream:
+                    # Receive one complete stream only; this loop owns the
+                    # shared retry budget across schema/JSON corrections.
+                    from app.videos.model_stream import _animation_response_once
+                    response = await _animation_response_once(client, url, headers,
+                        {**payload, 'stream': True}, label='整片讲稿')
+                else:
+                    response = await client.post(url, headers=headers, json=payload, timeout=150)
+            except ModelCallError as error:
+                failure = error
             except httpx.TimeoutException:
                 failure = ModelCallError('模型调用超时，请稍后重试', category='timeout')
             except httpx.HTTPError:

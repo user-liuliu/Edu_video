@@ -23,12 +23,12 @@ defineProps<{ title: string }>()
 
 <style scoped>
 .auth-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 470px); align-items: stretch; min-height: 100vh; background: var(--ev-color-bg); }
-.auth-story { display: flex; flex-direction: column; justify-content: center; padding: 70px clamp(32px, 8vw, 120px); background: var(--ev-color-rail); color: #fffaf5; }
+.auth-story { display: flex; flex-direction: column; justify-content: center; padding: 70px clamp(32px, 8vw, 120px); background: #f2f7ff; color: var(--ev-color-primary-dark); border-right: 1px solid var(--ev-color-border); }
 .story-brand { margin: 0; font-family: var(--ev-font-display); font-size: 24px; font-weight: 700; letter-spacing: .05em; }
 .story-kicker, .panel-kicker { margin: 10px 0 0; color: var(--ev-color-primary); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.story-kicker { color: rgba(255, 255, 255, .56); }
-.auth-story h1 { max-width: 430px; margin-top: 62px; font-family: var(--ev-font-display); font-size: clamp(32px, 4vw, 54px); line-height: 1.18; letter-spacing: -.04em; }
-.story-copy { max-width: 410px; margin-top: 18px; color: rgba(255, 255, 255, .7); font-size: 15px; line-height: 1.9; }
+.story-kicker { color: var(--ev-color-muted); }
+.auth-story h2 { max-width: 430px; margin-top: 52px; font-family: var(--ev-font-display); font-size: clamp(30px, 3.5vw, 48px); font-weight: 600; line-height: 1.4; letter-spacing: -.03em; }
+.story-copy { max-width: 410px; margin-top: 18px; color: var(--ev-color-muted); font-size: 15px; line-height: 1.9; }
 .auth-panel { align-self: center; width: 100%; padding: 48px clamp(25px, 5vw, 58px); background: var(--ev-color-surface); }
 .panel-kicker { margin: 0; }
 .title { margin: 6px 0 28px; font-size: 29px; letter-spacing: -.03em; }
@@ -37,7 +37,7 @@ defineProps<{ title: string }>()
 @media (max-width: 720px) {
   .auth-page { display: flex; flex-direction: column; min-height: 100vh; }
   .auth-story { min-height: 230px; padding: 28px 22px 30px; }
-  .auth-story h1 { margin-top: 30px; font-size: 32px; }
+  .auth-story h2 { margin-top: 24px; font-size: 30px; }
   .story-copy { margin-top: 10px; font-size: 13px; line-height: 1.7; }
   .auth-panel { align-self: stretch; padding: 30px 22px 45px; }
   .footer { position: static; padding: 0 22px 26px; text-align: center; background: var(--ev-color-surface); }

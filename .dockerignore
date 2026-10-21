@@ -1,0 +1,9 @@
+.git
+.env
+.superpowers
+.agents
+design-system
+**/__pycache__
+**/node_modules
+**/.venv
+frontend/dist

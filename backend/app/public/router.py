@@ -40,8 +40,8 @@ class PublicFormConfig(BaseModel):
 
 async def build_public_form(db: AsyncSession, box: SecretBox) -> PublicFormConfig:
     cfg = await get_form_fields(db)
-    tts_ready = await resolve(db, box, Purpose.tts) is not None
-    voices = await list_voices(db) if tts_ready else []
+    from app.videos.system_speech import voice_options
+    voices = await voice_options(db,box)
     web_search_ready = await resolve(db, box, Purpose.web_search) is not None
 
     fields: list[PublicField] = []
@@ -50,11 +50,11 @@ async def build_public_form(db: AsyncSession, box: SecretBox) -> PublicFormConfi
             continue
         options, default = f.options, f.default
         if f.key == FieldKey.voice:
-            # 音色只来自 tts 配置；tts 不可用或没有音色时不给老师选
+            # Include offline system speech independently of TTS configuration.
             if not voices:
                 continue
             options = [FieldOption(value=v.speaker_id, label=v.label) for v in voices]
-            default = voices[0].speaker_id
+            default = f.default if f.default in [v.speaker_id for v in voices] else voices[0].speaker_id
         elif f.key == FieldKey.web_search and not web_search_ready:
             continue
         fields.append(
@@ -66,7 +66,10 @@ async def build_public_form(db: AsyncSession, box: SecretBox) -> PublicFormConfi
                 default_by_subject=f.default_by_subject,
             )
         )
-    return PublicFormConfig(form_version=form_version(cfg, voices, web_search_ready), system_available=await system_available(db, box), fields=fields)
+    voice_field=next(f for f in cfg.fields if f.key==FieldKey.voice)
+    default_voice=voice_field.default if voice_field.default in [v.speaker_id for v in voices] else (voices[0].speaker_id if voices else None)
+    ready=await system_available(db,box,voice=default_voice if not voice_field.visible else None,allow_system_voice=voice_field.visible)
+    return PublicFormConfig(form_version=form_version(cfg, voices, web_search_ready), system_available=ready, fields=fields)
 
 
 @router.get("/form", dependencies=[Depends(require_active_user)])

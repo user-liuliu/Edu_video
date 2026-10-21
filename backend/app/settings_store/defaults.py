@@ -61,18 +61,7 @@ DEFAULT_FORM_FIELDS = FormFieldsConfig(
             default="16:9",
             options=_opts(("16:9", "16:9 横屏"), ("9:16", "9:16 竖屏"), ("1:1", "1:1 方形")),
         ),
-        FieldConfig(
-            key=FieldKey.style,
-            label="讲解风格",
-            visible=True,
-            default="auto",
-            options=_opts(
-                ("auto", "按科目自动"),
-                ("math_animation", "数学动画"),
-                ("story_sketch", "故事 / 简笔画"),
-            ),
-        ),
-        # 可选的音色来自模型配置里的 tts 一项
+        # 模型音色来自tts配置；可用的离线系统音色由服务端追加。
         FieldConfig(key=FieldKey.voice, label="配音声音", visible=True, default=None),
         FieldConfig(key=FieldKey.web_search, label="允许联网搜索", visible=True, default=True),
     ]

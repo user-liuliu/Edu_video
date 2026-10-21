@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_active_user
 from app.db import get_session
-from app.models import User, VideoProject
+from app.models import User, VideoProject, VideoVersion, VideoSegment
 from app.errors import api_error
 from app.model_configs import resolve, list_voices
 from app.purposes import Purpose
@@ -17,7 +17,8 @@ from app.settings_store.form_values import form_version, resolve_form_values
 from .schemas import ProjectCreate, ProjectUpdate, ProjectView, ProjectList
 from .service import check_revision, get_owned_project
 from app.jobs.service import require_idle
-from app.models import Material, MaterialChunk, ObjectCleanup
+from app.models import Material, MaterialChunk
+from app.jobs.dispatcher import enqueue_object_cleanup
 
 router = APIRouter(prefix='/api/projects', tags=['projects'])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -27,7 +28,8 @@ Box = Annotated[SecretBox, Depends(get_secret_box)]
 
 async def submission_policy(db, box):
     cfg = await get_form_fields(db)
-    voices = await list_voices(db) if await resolve(db, box, Purpose.tts) else []
+    from app.videos.system_speech import voice_options
+    voices = await voice_options(db,box)
     search_ready = await resolve(db, box, Purpose.web_search) is not None
     return cfg, voices, search_ready, form_version(cfg, voices, search_ready)
 
@@ -52,10 +54,17 @@ async def create_project(body: ProjectCreate, db: DB, user: CurrentTeacher, box:
 @router.get('')
 async def list_projects(db: DB, user: CurrentTeacher, scope: Literal['all', 'drafts', 'completed'] = 'all', page: Annotated[int, Query(ge=1)] = 1, page_size: Annotated[int, Query(ge=1, le=100)] = 20) -> ProjectList:
     conditions = [VideoProject.owner_id == user.id]
+    exported_video = select(VideoVersion.id).where(
+        VideoVersion.project_id == VideoProject.id,
+        VideoVersion.owner_id == user.id,
+        VideoVersion.status == 'succeeded',
+        VideoVersion.media_key.is_not(None),
+        VideoVersion.media_key != '',
+    ).exists()
     if scope == 'drafts':
-        conditions.append(VideoProject.status != 'completed')
+        conditions.append(~exported_video)
     elif scope == 'completed':
-        conditions.append(VideoProject.status == 'completed')
+        conditions.append(exported_video)
     total = await db.scalar(select(func.count()).select_from(VideoProject).where(*conditions))
     items = (await db.execute(select(VideoProject).where(*conditions).order_by(VideoProject.updated_at.desc(), VideoProject.id).offset((page - 1) * page_size).limit(page_size))).scalars().all()
     return ProjectList(items=[ProjectView.model_validate(p) for p in items], total=total or 0)
@@ -72,7 +81,7 @@ async def update_project(project_id: UUID, body: ProjectUpdate, db: DB, user: Cu
     check_revision(project, body.revision)
     await require_idle(db, project)
     values=await resolve_submission(db,box,body)
-    related=('subject','grade','textbook_edition','duration_seconds','style','web_search')
+    related=('subject','grade','textbook_edition','duration_seconds','web_search')
     if project.outline and (body.prompt!=project.prompt or any(values.get(k)!=project.form_values.get(k) for k in related)):
         project.needs_regeneration=True
         project.status='outline_ready'
@@ -90,8 +99,18 @@ async def delete_project(project_id: UUID, db: DB, user: CurrentTeacher, revisio
     await require_idle(db, project)
     keys = list((await db.scalars(select(Material.object_key).where(Material.project_id==project_id, Material.owner_id==user.id))).all())
     keys += list((await db.scalars(select(MaterialChunk.image_key).where(MaterialChunk.project_id==project_id, MaterialChunk.owner_id==user.id, MaterialChunk.image_key.is_not(None)))).all())
-    for key in keys:
-        db.add(ObjectCleanup(object_key=key))
+    versions=(await db.scalars(select(VideoVersion).where(VideoVersion.project_id==project_id,VideoVersion.owner_id==user.id))).all()
+    for version in versions:
+        keys.extend(version.asset_keys)
+        if version.media_key: keys.append(version.media_key)
+        segments=(await db.scalars(select(VideoSegment).where(VideoSegment.version_id==version.id))).all()
+        for segment in segments:
+            keys.extend(
+                value for name, value in segment.assets.items()
+                if name not in {'hashes', 'fingerprints', 'audio_instruction', 'visual_instruction'}
+                and isinstance(value, str)
+            )
+    await enqueue_object_cleanup(db, keys)
     await db.delete(project)
     await db.commit()
     return Response(status_code=204)

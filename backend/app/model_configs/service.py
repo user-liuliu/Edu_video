@@ -58,6 +58,7 @@ def _voices(extra: dict[str, Any] | None) -> list[Voice]:
 
 
 def _view(box: SecretBox, purpose: Purpose, row: ModelConfigRow | None) -> ModelConfigView:
+    from app.videos.system_speech import available as system_voice_available
     if row is None:
         base_url, model = DEFAULTS[purpose]
         status, plain = "missing", None
@@ -71,7 +72,7 @@ def _view(box: SecretBox, purpose: Purpose, row: ModelConfigRow | None) -> Model
     return ModelConfigView(
         purpose=purpose,
         label=PURPOSE_LABELS[purpose],
-        required=purpose in REQUIRED_PURPOSES,
+        required=purpose in REQUIRED_PURPOSES and not (purpose==Purpose.tts and system_voice_available()),
         base_url=base_url,
         model=model,
         enabled=enabled,
@@ -212,10 +213,13 @@ async def resolve(
     return _resolve_row(box, purpose, row, require_enabled=require_enabled)
 
 
-async def system_available(db: AsyncSession, box: SecretBox) -> bool:
+async def system_available(db: AsyncSession, box: SecretBox, *, voice: str | None = None, allow_system_voice: bool = False) -> bool:
     """必需的用途都能用，并且最近一次测试没有失败（没测过也算可用）。"""
     rows = await _load_rows(db)
+    from app.videos.system_speech import available,SYSTEM_VOICE
+    offline=available() and (voice==SYSTEM_VOICE or allow_system_voice)
     for p in REQUIRED_PURPOSES:
+        if p==Purpose.tts and offline:continue
         row = rows.get(p)
         if _resolve_row(box, p, row, require_enabled=True) is None:
             return False

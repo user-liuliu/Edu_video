@@ -7,9 +7,9 @@ import OutlineView from '../src/views/workbench/OutlineView.vue'
 let wrapper:VueWrapper|undefined
 afterEach(()=>{wrapper?.unmount();wrapper=undefined;ElMessageBox.close();document.body.innerHTML='';vi.unstubAllGlobals();vi.useRealTimers();vi.restoreAllMocks()})
 const makeSegment=(id:string,passed:boolean|null=true)=>({id,position:0,title:id,objective:'理解电路',narration:'同学们好',visuals:[{kind:'文字卡',description:'电路图'}],evidence_ids:[],content_kind:'knowledge',review_notes:['请教师核对教材'],content_revision:1,reviewed_revision:passed===null?0:1,review_passed:passed,review_issues:passed===false?['公式错误']:[],estimated_duration_seconds:3})
-async function setup(segments=[makeSegment('s1')],needsSave=false){
+async function setup(segments=[makeSegment('s1')],needsSave=false,status='outline_ready'){
  vi.useFakeTimers()
- let data:any={project_id:'p1',title:'串联电路',revision:2,status:'outline_ready',segments,job_id:null,needs_regeneration:false,needs_save:needsSave}
+ let data:any={project_id:'p1',title:'串联电路',revision:2,status,segments,job_id:null,needs_regeneration:false,needs_save:needsSave}
  let failSave=false,jobStatus='running'
  const calls:{url:string;method:string;body:any}[]=[]
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
@@ -32,7 +32,7 @@ async function setup(segments=[makeSegment('s1')],needsSave=false){
   if(url.endsWith('/confirm')&&method==='POST')data={...data,revision:data.revision+1,status:'outline_confirmed'}
   return new Response(JSON.stringify(data))
  }))
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/outline',name:'project-outline',component:OutlineView}]})
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/:id/outline',name:'project-outline',component:OutlineView},{path:'/projects/:id/video',name:'project-video',component:{template:'<div>视频预览</div>'}}]})
  await router.push('/projects/p1/outline')
  wrapper=mount(OutlineView,{attachTo:document.body,global:{plugins:[router,ElementPlus]}});await flushPromises()
  return {w:wrapper,calls,setFailSave:(v:boolean)=>failSave=v,setJob:(v:string)=>jobStatus=v}
@@ -67,6 +67,7 @@ test('confirmation explains save requirement and only confirms the explicitly sa
  await click('保存大纲');await dialogClick('知道了')
  await click('确认大纲');await dialogClick('确认大纲')
  expect(calls.find(c=>c.url.endsWith('/confirm'))?.body.revision).toBe(3)
+ expect(w.vm.$router.currentRoute.value.name).toBe('project-video')
  expect(w.text()).toContain('大纲已确认')
 })
 
@@ -134,5 +135,12 @@ test('failed review submission keeps the editor usable without a false red verdi
  expect(w.text()).toContain('审核模型暂不可用')
  expect(w.get('.segment header .el-tag').text()).toBe('待审核')
  expect(w.get('[aria-label="逐字稿 1"]').attributes('disabled')).toBeUndefined()
+ expect(calls.some(c=>c.url.endsWith('/confirm'))).toBe(false)
+})
+
+test.each(['preview_ready','video_exporting'])('outline in %s opens existing preview without reconfirming',async(status)=>{
+ const {w,calls}=await setup([makeSegment('s1')],false,status)
+ await click('进入视频预览')
+ expect(w.vm.$router.currentRoute.value.name).toBe('project-video')
  expect(calls.some(c=>c.url.endsWith('/confirm'))).toBe(false)
 })

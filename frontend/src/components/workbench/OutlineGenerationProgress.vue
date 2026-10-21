@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,onMounted,onBeforeUnmount,ref} from 'vue'
 
-const props=defineProps<{stage:string;createdAt?:string;connectionError?:boolean}>()
+const props=withDefaults(defineProps<{stage:string;createdAt?:string;connectionError?:boolean;label?:string}>(),{label:'大纲生成进度'})
 const mountedAt=Date.now()
 const now=ref(mountedAt)
 let timer:ReturnType<typeof setInterval>|undefined
@@ -16,7 +16,7 @@ onBeforeUnmount(()=>clearInterval(timer))
 </script>
 
 <template>
-  <section class="generation-progress" :class="{'connection-lost':connectionError}" data-testid="live-outline-progress" aria-label="大纲生成进度">
+  <section class="generation-progress" :class="{'connection-lost':connectionError}" data-testid="live-outline-progress" :aria-label="label">
     <div class="progress-heading">
       <div class="progress-stage" role="status" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
@@ -24,7 +24,7 @@ onBeforeUnmount(()=>clearInterval(timer))
       </div>
       <span class="elapsed-time" data-testid="outline-elapsed-time">已等待 {{elapsed}}</span>
     </div>
-    <div class="progress-track" role="progressbar" aria-label="大纲任务处理中" :aria-valuetext="statusText">
+    <div class="progress-track" role="progressbar" :aria-label="label+'处理中'" :aria-valuetext="statusText">
       <div class="loading-band" data-testid="outline-loading-band" aria-hidden="true"></div>
     </div>
     <p v-if="connectionError">暂时无法获取任务状态，正在自动重连；后台任务可能仍在继续，请勿重复提交。</p>

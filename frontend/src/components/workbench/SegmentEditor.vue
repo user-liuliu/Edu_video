@@ -11,7 +11,7 @@ const reviewState=computed(()=>segmentReviewState(props.segment,props.contentCha
 const reviewStatus=computed(()=>{
   if(reviewState.value==='pending')return {label:'待审核',type:'warning' as const,description:'当前内容尚未通过AI审核，请保存后重新审核，再由教师确认。'}
   if(reviewState.value==='failed')return {label:'审核未通过',type:'danger' as const,description:'AI发现当前版本存在必须修改的问题，请教师根据原因修改并重新审核。'}
-  return {label:'AI已审核',type:'success' as const,description:'AI已审核当前版本，未发现必须修改的问题；普通建议仍需教师核对，最终由教师确认。'}
+  return {label:'AI已审核',type:'success' as const,description:'AI已审核当前版本，未发现必须修改的问题；普通建议仍需教师核对；此状态仅针对大纲内容，生成后仍需预览核对画面与配音。'}
 })
 function update(key:keyof Segment,value:unknown){emit('change',{...props.segment,[key]:value})}
 function visual(index:number,key:keyof Visual,value:unknown){update('visuals',props.segment.visuals.map((v,i)=>i===index?{...v,[key]:value}:v))}
@@ -33,10 +33,11 @@ function visual(index:number,key:keyof Visual,value:unknown){update('visuals',pr
       </div>
       <el-form-item label="教学目标"><el-input :model-value="segment.objective" :aria-label="'教学目标 '+(index+1)" @update:model-value="(v:unknown)=>update('objective',v)"/></el-form-item>
       <el-form-item label="完整逐字稿"><el-input type="textarea" :rows="5" :model-value="segment.narration" :aria-label="'逐字稿 '+(index+1)" @update:model-value="(v:unknown)=>update('narration',v)"/></el-form-item>
-      <p class="field-label">画面安排</p>
+      <p class="field-label">画面说明</p>
+      <p :id="`visual-help-${segment.id}`" class="visual-help">写清展示什么、发生什么变化、希望学生理解什么即可，无需编写分镜或具体秒数。</p>
       <div v-for="(v,i) in segment.visuals" :key="i" class="visual-row">
         <el-select :model-value="v.kind" :aria-label="'画面类型 '+(index+1)+'-'+(i+1)" @update:model-value="(value:unknown)=>visual(i,'kind',value)"><el-option v-for="kind in kinds" :key="kind" :label="kind" :value="kind"/></el-select>
-        <el-input :model-value="v.description" type="textarea" :rows="2" :aria-label="'画面描述 '+(index+1)+'-'+(i+1)" @update:model-value="(value:unknown)=>visual(i,'description',value)"/>
+        <el-input :model-value="v.description" type="textarea" :rows="2" :aria-label="'画面描述 '+(index+1)+'-'+(i+1)" :aria-describedby="`visual-help-${segment.id}`" @update:model-value="(value:unknown)=>visual(i,'description',value)"/>
         <el-button text type="danger" :disabled="disabled||segment.visuals.length<=1" @click="update('visuals',segment.visuals.filter((_,n)=>n!==i))">移除</el-button>
       </div>
       <el-button text :disabled="disabled||segment.visuals.length>=12" @click="update('visuals',[...segment.visuals,{kind:'文字卡',description:''}])">添加画面</el-button>
@@ -58,12 +59,13 @@ function visual(index:number,key:keyof Visual,value:unknown){update('visuals',pr
 
 <style scoped>
 .segment{background:var(--ev-color-surface);border:1px solid var(--ev-color-border);border-radius:var(--ev-radius);padding:24px;margin-bottom:20px}
-header{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:20px}
-header strong{font-size:18px}
-.position{color:var(--ev-color-primary);font-variant-numeric:tabular-nums}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:22px;padding-bottom:18px;border-bottom:1px solid var(--ev-color-border)}
+header strong{font-size:16px;font-weight:600}
+.position{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--el-color-primary-light-9);color:var(--ev-color-primary);font-variant-numeric:tabular-nums;font-size:12px}
 .duration{margin-left:auto;color:var(--ev-color-muted);font-size:12px}
 .pair{display:grid;grid-template-columns:2fr 1fr;gap:20px}
 .field-label{font-size:14px;margin:0 0 8px}
+.visual-help{font-size:13px;line-height:1.7;color:var(--ev-color-muted);margin:0 0 12px}
 .visual-row{display:grid;grid-template-columns:130px minmax(0,1fr) auto;gap:10px;margin-bottom:12px}
 .evidence{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:13px}
 .review-notes{border-left:3px solid var(--ev-color-border);padding:10px 16px 10px 28px;color:var(--ev-color-muted);font-size:13px;line-height:1.8}

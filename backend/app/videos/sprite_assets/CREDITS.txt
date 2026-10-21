@@ -1,0 +1,6 @@
+Original local pixel art - Edu Video - 2026-10-20
+All character and object pixels were newly authored by a deterministic Python/Pillow build.
+Art origin: original-local-pixel-art. No Stardew Valley or LPC image assets used.
+Visual direction: warm rural RPG palette, compact proportions, clean native pixel clusters.
+Source: pixel-art/original-cast/build.py; Skill workflow: Gamezxz/pixel-art-studio (MIT).
+This record describes provenance and does not assert exclusive copyright in AI-assisted output.

@@ -69,7 +69,6 @@ export type FieldKey =
   | 'textbook_edition'
   | 'duration'
   | 'aspect_ratio'
-  | 'style'
   | 'voice'
   | 'web_search'
 

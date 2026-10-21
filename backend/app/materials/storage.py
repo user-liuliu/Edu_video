@@ -27,3 +27,9 @@ class MaterialStorage:
 
     def delete(self, key):
         self.client.remove_object(self.bucket, key)
+
+    def stat(self, key):
+        return self.client.stat_object(self.bucket, key).size
+
+    def open(self, key, offset=0, length=0):
+        return self.client.get_object(self.bucket, key, offset=offset, length=length)

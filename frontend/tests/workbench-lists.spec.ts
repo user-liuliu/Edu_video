@@ -22,11 +22,13 @@ test('draft list uses real projects and continues the selected draft',async()=>{
 test('completed video list requests only completed projects',async()=>{
  const fetch=vi.fn(async()=>new Response(JSON.stringify({items:[{id:'p2',title:'已完成视频',prompt:'二次函数',status:'completed',updated_at:'2026-10-16T11:00:00Z'}],total:1})))
  vi.stubGlobal('fetch',fetch)
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects',name:'project-list',component:ProjectListView},{path:'/projects/:id/outline',name:'project-outline',component:{template:'<div />'}},{path:'/projects/new',name:'project-create',component:{template:'<div />'}}]})
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects',name:'project-list',component:ProjectListView},{path:'/projects/:id/outline',name:'project-outline',component:{template:'<div />'}},{path:'/projects/:id/video',name:'project-video',component:{template:'<div />'}},{path:'/projects/new',name:'project-create',component:{template:'<div />'}}]})
  await router.push('/projects')
  const w=mount(ProjectListView,{global:{plugins:[router,ElementPlus]}});await flushPromises()
  expect(fetch.mock.calls[0]?.[0]).toContain('scope=completed')
- expect(w.text()).toContain('已完成视频');expect(w.text()).not.toContain('草稿箱');expect(w.findAll('button').some(b=>b.text()==='新建视频')).toBe(false);w.unmount()
+ expect(w.text()).toContain('已完成视频');expect(w.text()).not.toContain('草稿箱');expect(w.findAll('button').some(b=>b.text()==='新建视频')).toBe(false)
+ await w.findAll('button').find(b=>b.text()==='查看视频')!.trigger('click');await flushPromises()
+ expect(router.currentRoute.value.name).toBe('project-video');w.unmount()
 })
 
 test('preferences remain unavailable while global memory is disabled',async()=>{

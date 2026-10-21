@@ -80,6 +80,32 @@ test('side rail uses the sticky navigation variant', async () => {
   expect(w.find('.side-rail').classes()).toContain('side-rail--sticky')
 })
 
+test('sidebar can collapse and expand while all navigation links remain accessible', async () => {
+  const w=await mountAs('teacher','/projects/new')
+  expect(w.find('aside').text()).not.toContain('教师工作台')
+  const toggle=w.get('button[aria-label="收起侧边栏"]')
+  expect(w.find('header .rail-toggle').exists()).toBe(false)
+  expect(w.find('aside .rail-toolbar .rail-toggle').exists()).toBe(true)
+  expect(toggle.attributes('aria-expanded')).toBe('true')
+  await toggle.trigger('click')
+  expect(w.get('.app-shell').classes()).toContain('rail-collapsed')
+  expect(w.get('button[aria-label="展开侧边栏"]').attributes('aria-expanded')).toBe('false')
+  expect(w.findAll('.rail-link')).toHaveLength(5)
+  expect(w.findAll('.rail-link').every(link=>!!link.attributes('title'))).toBe(true)
+  await w.get('button[aria-label="展开侧边栏"]').trigger('click')
+  expect(w.get('.app-shell').classes()).not.toContain('rail-collapsed')
+})
+
+test('light rail has decorative icons with readable links and no duplicate new entry', async () => {
+  const w=await mountAs('teacher', '/projects/new')
+  const links=w.findAll('.rail-link')
+  expect(links).toHaveLength(5)
+  expect(links.every(link=>link.find('svg[aria-hidden="true"]').exists())).toBe(true)
+  expect(links.find(link=>link.text()==='视频制作')?.attributes('aria-current')).toBe('page')
+  expect(w.find('.skip-link[href="#main-content"]').exists()).toBe(true)
+  expect(w.find('aside').text()).not.toContain('新建视频')
+})
+
 test('header uses the sticky navigation variant', async () => {
   const w = await mountAs('teacher')
   expect(w.find('header').classes()).toContain('app-header--sticky')
@@ -92,6 +118,7 @@ test('teacher does not see admin entry', async () => {
 
 test('admin sees admin entry', async () => {
   const w = await mountAs('admin')
+  expect(w.find('aside .rail-toolbar .rail-toggle').exists()).toBe(true)
   expect(w.text()).toContain('管理后台')
   expect(w.find('[aria-label="管理员导航"]').text()).toContain('页面配置')
   expect(w.find('[aria-label="管理员导航"]').text()).toContain('模型配置')
@@ -233,4 +260,35 @@ test('failed jobs do not show a completion reminder', async () => {
   expect(completionDialogs()).toHaveLength(0)
   expect(completionReminders()).toHaveLength(0)
   expect(sessionStorage.getItem('edu-video:outline-job-notification')).toBeNull()
+})
+
+test('outline and video completions share a sequential three second reminder queue',async()=>{
+  vi.useFakeTimers()
+  notificationJobs(['j1','j2'])
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+    if(url.includes('/api/jobs/')){
+      const id=url.split('/').pop()!
+      return new Response(JSON.stringify({...jobResponse(id,'succeeded'),kind:id==='j1'?'generate':'video',updated_at:id==='j2'?'2026-10-18T00:00:01Z':'2026-10-18T00:00:02Z'}))
+    }
+    return new Response(JSON.stringify(outlineResponse('p1','函数')))
+  }))
+  await mountAs('teacher','/projects');await flushPromises()
+  expect(completionReminders()[0]!.textContent).toContain('函数的视频已经生成完毕')
+  await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+  expect(completionReminders()[0]!.textContent).toContain('函数的视频大纲已经生成完毕')
+  await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+  expect(completionReminders()).toHaveLength(0)
+})
+
+
+test('preview and export completions join the same ordered reminder queue',async()=>{
+ vi.useFakeTimers();notificationJobs(['j1','j2'])
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+  if(url.includes('/api/jobs/')){const id=url.split('/').pop()!;return new Response(JSON.stringify({...jobResponse(id,'succeeded'),kind:id==='j1'?'video':'video_export',payload:{workflow:'html-preview-1'},updated_at:id==='j1'?'2026-10-18T00:00:01Z':'2026-10-18T00:00:02Z'}))}
+  return new Response(JSON.stringify({...outlineResponse('p1','函数'),status:'preview_ready'}))
+ }))
+ await mountAs('teacher','/projects');await flushPromises()
+ expect(completionReminders()[0]?.textContent).toContain('函数的动画预览已就绪')
+ await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+ expect(completionReminders()[0]?.textContent).toContain('函数的MP4已导出完成')
 })
