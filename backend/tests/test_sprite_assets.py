@@ -50,14 +50,15 @@ def test_corrupt_and_unsafe_asset_entries_are_rejected(tmp_path):
     with pytest.raises(ValueError,match='素材'):load_bundle(root=root)
 
 
-def test_html_request_adds_sprite_catalog_for_story_but_not_science_or_style_override():
+def test_html_request_never_adds_sprite_catalog_for_new_generation():
     from app.videos.direct_pipeline import html_generation_request
     from app.videos.quality import resolve_style
     def request(subject,prompt,narration,local=''):
         snapshot={'title':'测试','prompt':prompt,'form_values':{'subject':subject},'film_expression':{'visual_prompt':'连续画面'},'outline':{},'style':resolve_style({'subject':subject})}
         return html_generation_request(snapshot,[{'narration':narration,'teacher_visual_instruction':local}],3.)
     story=request('语文','讲述两个人相互帮助的故事','两个人走近并交流。')
-    assert story['sprite_library']['characters']
+    assert 'sprite_library' not in story
+    assert '故事演绎中的人物' in story['animation_reference_adapter']
     assert 'sprite_library' not in request('数学','讲解二次函数','抛物线经过原点。')
     assert 'sprite_library' not in request('语文','不要像素风，采用水墨讲述故事','两个人走近并交流。')
     assert 'sprite_library' not in request('语文','像素风故事','两个人走近并交流。','改为水墨风')

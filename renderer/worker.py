@@ -10,9 +10,11 @@ async def run(operation,folder):
     limit_cpu_affinity()
     folder=Path(folder)
     request=DirectRenderRequest.model_validate_json((folder/'request.json').read_bytes())
-    if operation=='validate-html':metadata=await validate_direct(request)
-    elif operation=='render-html':metadata=await render_direct(request,folder/'output.mp4')
-    else:raise ValueError('Unsupported operation')
+    from .capture import stable_svg_capture
+    async with stable_svg_capture():
+        if operation=='validate-html':metadata=await validate_direct(request)
+        elif operation=='render-html':metadata=await render_direct(request,folder/'output.mp4')
+        else:raise ValueError('Unsupported operation')
     (folder/'metadata.json').write_text(json.dumps(metadata),encoding='utf-8')
 
 if __name__=='__main__':

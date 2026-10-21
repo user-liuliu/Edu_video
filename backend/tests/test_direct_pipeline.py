@@ -197,7 +197,7 @@ async def test_old_generation_endpoints_are_removed(db,teacher_client,box):
     assert response.status_code==404
 
 
-async def test_checkpoint_repair_keeps_frozen_content_and_sprite_api_without_duplicate_guides(db,teacher_client,box,settings,monkeypatch):
+async def test_checkpoint_repair_keeps_frozen_content_without_injecting_sprite_assets(db,teacher_client,box,settings,monkeypatch):
     from app.videos.render_contract import DirectHtmlRuntimeError
     project,path,store,renderer,counts,calls=await prepare(db,teacher_client,box,settings,monkeypatch)
     project.prompt='用细腻像素小人演示孔融把梨递给哥哥，动作简单自然'
@@ -220,7 +220,8 @@ async def test_checkpoint_repair_keeps_frozen_content_and_sprite_api_without_dup
     assert result['status']=='preview_ready',result
     assert len(calls)==2 and counts=={'speech':1,'scene':0}
     ids={doc['skill_id'] for doc in calls[0]['animation_design_references']}
-    assert {'game-graphics','2d-character-rig-animation'} <= ids
+    assert 'game-graphics' in ids and '2d-character-rig-animation' not in ids
+    assert 'sprite_library' not in calls[0]
     for request in calls:
         assert request['teacher_request']==project.prompt
         assert request['animation_reference_adapter']
@@ -229,24 +230,26 @@ async def test_checkpoint_repair_keeps_frozen_content_and_sprite_api_without_dup
     assert 'approved_outline' not in repaired
     assert repaired['previous_html']==HTML
     assert repaired['segments']==calls[0]['segments']
-    assert repaired['sprite_library']==calls[0]['sprite_library']
+    assert 'sprite_library' not in repaired
     assert repaired['visual_style']==calls[0]['visual_style']
     import json
     assert len(json.dumps(repaired,ensure_ascii=False)) < len(json.dumps({**calls[0],'previous_html':HTML},ensure_ascii=False))*.8
 
 
-async def test_story_default_reaches_saved_snapshot_and_html_request_without_pixel_keyword(db,teacher_client,box,settings,monkeypatch):
+async def test_story_default_reaches_saved_snapshot_without_injecting_pixel_assets(db,teacher_client,box,settings,monkeypatch):
     project,path,store,renderer,counts,calls=await prepare(db,teacher_client,box,settings,monkeypatch)
     project.title='大禹治水';project.prompt='讲述大禹带领百姓疏通河道的故事'
     project.form_values={**project.form_values,'subject':'语文'};await db.commit()
-    response=await teacher_client.post(path,json={'revision':1,'idempotency_key':'default-pixel-story'})
+    response=await teacher_client.post(path,json={'revision':1,'idempotency_key':'default-vector-story'})
     assert response.status_code==202,response.text
     await run_job(response.json()['job']['id'],settings)
     result=(await teacher_client.get(path+'/'+response.json()['id'])).json()
     assert result['status']=='preview_ready',result
     row=await db.get(VideoVersion,UUID(result['id']),populate_existing=True)
-    assert row.snapshot['style']['value']=='pixel_story'
-    assert calls[0]['visual_style']['defaults']['character_stories']=='detailed_pixel_art'
+    assert row.snapshot['style']['value']=='vector_story'
+    assert calls[0]['visual_style']['defaults']['character_stories']=='clear_vector_illustration'
     assert calls[0]['visual_style']['defaults']['formulas_graphs_experiments']=='clean_graphics'
-    assert any(d['path'].endswith('/pixel-art-reference.md') for d in calls[0]['animation_design_references'])
+    assert not any(d['path'].endswith('/pixel-art-reference.md') for d in calls[0]['animation_design_references'])
+    assert 'sprite_library' not in calls[0]
+    assert '整体移动' in calls[0]['animation_reference_adapter']
     assert len(calls)==1 and counts=={'speech':1,'scene':0}

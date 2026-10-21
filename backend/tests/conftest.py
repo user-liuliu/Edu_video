@@ -95,7 +95,7 @@ async def db(db_engine):
         finally:
             await session.rollback()
     async with db_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, system_settings, model_configs CASCADE"))
+        await conn.execute(text("TRUNCATE users, system_settings, model_configs, object_cleanup CASCADE"))
 
 
 @pytest.fixture

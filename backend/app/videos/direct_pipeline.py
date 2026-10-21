@@ -13,7 +13,7 @@ from .cache import cache_fingerprint
 from .direct_html import generate_html,seal_html,align_clock,join_audio,direct_digest,DIRECT_PROTOCOL
 from .media_assets import read_asset,dimensions,align_audio
 from .timing import estimated_cues,spoken
-from .skill_guidance import animation_guidance,bundle_metadata,sprite_reference_documents
+from .skill_guidance import animation_guidance,animation_reference_documents,bundle_metadata
 
 
 def html_generation_request(snapshot,targets,duration):
@@ -29,10 +29,8 @@ def html_generation_request(snapshot,targets,duration):
             'approved_outline':snapshot['outline'],'whole_film_visual_prompt':snapshot['film_expression']['visual_prompt'],
             'segments':targets,'visual_style':snapshot['style'],'animation_design_references':guidance['documents'],
             'animation_reference_adapter':guidance['runtime_adapter']}
-    if '2d-character-rig-animation' in guidance['skill_ids'] and any(doc['path'].endswith('/pixel-art-reference.md') for doc in guidance['documents']):
-        from .sprite_assets import sprite_guidance
-        request['sprite_library']=sprite_guidance()
-        request['animation_design_references']=sprite_reference_documents(guidance)
+    if guidance['story_characters']:
+        request['animation_design_references']=animation_reference_documents(guidance)
     return request
 
 

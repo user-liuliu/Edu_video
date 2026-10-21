@@ -35,6 +35,23 @@ async def test_whole_film_expression_uses_source_and_returns_frozen_shared_scrip
     assert 'y=kx+b' in content and '坐标图像' in content
 
 
+async def test_expression_keeps_story_facts_but_requests_whole_character_motion(monkeypatch):
+    from types import SimpleNamespace
+    from app.purposes import Purpose
+    messages=[]
+    async def capture_prompt(config, prompt_messages, **kwargs):
+        messages.extend(prompt_messages)
+        return response()
+    monkeypatch.setattr('app.videos.expression.chat_json',capture_prompt)
+    cfg=SimpleNamespace(base_url='https://test.invalid/v1',model='writer',api_key='test',purpose=Purpose.outline_llm)
+    await build_expression(cfg,source(),targets(),None)
+    system='\n'.join(m['content'] for m in messages if m['role']=='system')
+    assert '故事关键行为、人物关系、因果与教学含义必须保留' in system
+    assert '只通过整体移动、水平翻转、淡入淡出等简单方式表现动作' in system
+    assert '不要求关节、步态或手物接触动画' in system
+    assert '数学图像、实验与人物动作允许灵活设计' not in system
+
+
 @pytest.mark.parametrize('change',['missing','duplicate','wrong_order','empty','formula'])
 def test_invalid_expression_cannot_replace_approved_source(change):
     result=response()
@@ -63,4 +80,4 @@ async def test_expression_request_receives_automatic_story_policy_before_html_ge
     cfg=SimpleNamespace(base_url='https://test.invalid/v1',model='writer',api_key='test',purpose=Purpose.outline_llm)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
         await build_expression(cfg,snapshot,targets(),http)
-    assert received[0]['style']['defaults']=={'character_stories':'detailed_pixel_art','formulas_graphs_experiments':'clean_graphics'}
+    assert received[0]['style']['defaults']=={'character_stories':'clear_vector_illustration','formulas_graphs_experiments':'clean_graphics'}

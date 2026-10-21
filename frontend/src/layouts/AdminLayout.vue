@@ -1,10 +1,16 @@
 <!-- 管理后台子页面由 AppLayout 的侧边栏切换。 -->
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+const route = useRoute()
+const heading = computed(() => ({ 'admin-page-config': '页面配置', 'admin-model-config': '模型配置', 'admin-users': '用户管理' })[String(route.name)] ?? '系统配置')
+</script>
 
 <template>
   <section class="admin" aria-label="管理后台">
     <div class="admin-heading">
       <p class="eyebrow">管理员后台</p>
-      <h1>系统配置</h1>
+      <h1>{{ heading }}</h1>
       <p class="ev-muted">页面配置默认展示，模型和用户管理从左侧切换。</p>
     </div>
     <RouterView />

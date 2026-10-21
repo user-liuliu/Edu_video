@@ -59,9 +59,9 @@ function visual(index:number,key:keyof Visual,value:unknown){update('visuals',pr
 
 <style scoped>
 .segment{background:var(--ev-color-surface);border:1px solid var(--ev-color-border);border-radius:var(--ev-radius);padding:24px;margin-bottom:20px}
-header{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:20px}
-header strong{font-size:18px}
-.position{color:var(--ev-color-primary);font-variant-numeric:tabular-nums}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:22px;padding-bottom:18px;border-bottom:1px solid var(--ev-color-border)}
+header strong{font-size:16px;font-weight:600}
+.position{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--el-color-primary-light-9);color:var(--ev-color-primary);font-variant-numeric:tabular-nums;font-size:12px}
 .duration{margin-left:auto;color:var(--ev-color-muted);font-size:12px}
 .pair{display:grid;grid-template-columns:2fr 1fr;gap:20px}
 .field-label{font-size:14px;margin:0 0 8px}

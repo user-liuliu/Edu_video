@@ -45,7 +45,7 @@ async def test_persistent_animation_timeout_is_bounded_classified_and_logged_saf
     with caplog.at_level(logging.WARNING):
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
             with pytest.raises(ModelCallError) as caught: await generate_html(CONFIG, {}, http)
-    assert calls == 2
+    assert calls == 4
     assert caught.value.category == 'timeout'
     assert '超时' in str(caught.value)
     assert 'category=timeout' in caplog.text
@@ -83,8 +83,8 @@ async def test_cut_off_sse_is_retried_without_treating_partial_html_as_complete(
     ('invalid_api_key','authentication',401,1),
     ('permission_denied','permission',403,1),
     ('context_length_exceeded','invalid_request',400,1),
-    ('rate_limit_exceeded','rate_limit',429,2),
-    ('upstream_error','unavailable',502,2),
+    ('rate_limit_exceeded','rate_limit',429,4),
+    ('upstream_error','unavailable',502,4),
 ])
 async def test_raw_json_error_after_sse_heartbeats_preserves_provider_category(code,category,status,expected_calls,caplog):
     calls=0

@@ -358,13 +358,18 @@ function onPasswordClosed() {
 
 .registration {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
 
 .registration-label {
+  flex-shrink: 0;
   font-weight: 600;
+  white-space: nowrap;
 }
+
+.registration .ev-muted { flex: 1 1 180px; }
 
 .filters {
   display: flex;
@@ -433,6 +438,12 @@ function onPasswordClosed() {
 }
 
 @media (max-width: 600px) {
+  .pager {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
   .filters {
     flex-wrap: wrap;
   }

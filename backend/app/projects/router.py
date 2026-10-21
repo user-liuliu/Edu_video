@@ -17,7 +17,8 @@ from app.settings_store.form_values import form_version, resolve_form_values
 from .schemas import ProjectCreate, ProjectUpdate, ProjectView, ProjectList
 from .service import check_revision, get_owned_project
 from app.jobs.service import require_idle
-from app.models import Material, MaterialChunk, ObjectCleanup
+from app.models import Material, MaterialChunk
+from app.jobs.dispatcher import enqueue_object_cleanup
 
 router = APIRouter(prefix='/api/projects', tags=['projects'])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -103,9 +104,13 @@ async def delete_project(project_id: UUID, db: DB, user: CurrentTeacher, revisio
         keys.extend(version.asset_keys)
         if version.media_key: keys.append(version.media_key)
         segments=(await db.scalars(select(VideoSegment).where(VideoSegment.version_id==version.id))).all()
-        for segment in segments: keys.extend(v for k,v in segment.assets.items() if k!='hashes' and isinstance(v,str))
-    for key in set(keys):
-        db.add(ObjectCleanup(object_key=key))
+        for segment in segments:
+            keys.extend(
+                value for name, value in segment.assets.items()
+                if name not in {'hashes', 'fingerprints', 'audio_instruction', 'visual_instruction'}
+                and isinstance(value, str)
+            )
+    await enqueue_object_cleanup(db, keys)
     await db.delete(project)
     await db.commit()
     return Response(status_code=204)

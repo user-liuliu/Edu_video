@@ -18,6 +18,7 @@
 ```powershell
 docker compose config --quiet
 docker compose build backend
+docker compose build renderer
 docker compose build frontend
 docker compose up -d
 docker compose ps
@@ -30,6 +31,8 @@ docker compose exec -T worker celery -A app.jobs.celery_app:celery_app inspect p
 
 升级前备份完整 PostgreSQL 数据库（含业务表和 `agent_state` schema）、MinIO `materials` 卷，以及安全保存 `.env` 中 MASTER_KEY/存储凭据。恢复时匹配数据库与对象文件；禁止清空真实库或执行 `docker compose down -v`。
 
+修改 backend/app/videos 中参与动画运行版本计算的代码、提示词或素材时，必须同时重建并更新 backend、worker、scheduler 和 renderer。renderer 镜像也复制了这些文件；只更新后端会导致预览检查或 MP4 导出提示“动画运行版本不一致”。部署后须核对 worker 与 renderer 的 app.videos.direct_html.direct_digest() 一致，并从 worker 实测 HTML 检查及短片导出；仅健康接口成功不足以证明版本一致。
+
 ## 配置约定
 
 搜索使用 Tavily，在模型配置的「联网搜索」填写 `https://api.tavily.com`（完整 `/search` 也可）和 Key，无需模型名。测试连接会实际调用搜索。2026-10-16 已核对官方接口 POST `/search`、Bearer 鉴权、`search_depth=basic` 与 `max_results`；自动测试使用模拟响应，未用真实 Key 产生费用。搜索未配置时隐藏开关；关闭后不访问搜索服务、网页或搜索缓存。上传素材和搜索摘要均需教师核实。
@@ -38,7 +41,7 @@ docker compose exec -T worker celery -A app.jobs.celery_app:celery_app inspect p
 
 隐藏参数按服务端默认值解析。生成须带当前 `form_version`；排队期间页面配置变化时明确失败并返回需求页确认参数。隐藏素材后禁止新上传，新生成大纲也不使用旧素材；已有文件仍可查看和删除。修改需求、科目、年级、教材、时长、风格、联网方式或素材后保留旧大纲并要求重新生成；尺寸/音色调整不会使讲稿失效。
 
-自定义时长大于 0 且最多 60 分钟。总讲稿估时超出配置容差会显示审核提示，估时不等于实际配音时长。第三阶段采用大纲驱动 HTML/SVG/JavaScript 动画再导出 MP4，不依赖生图模型。管理员已移除“画插图”、每段画面数上下限和每分钟插图上限；画面描述保留，按教学内容与旁白节奏安排，不按旧数量范围拦截生成/改写/审核。原大纲结构的大小保护仍保留。
+自定义时长大于 0 且最多 60 分钟。总讲稿估时超出配置容差会显示审核提示，估时不等于实际配音时长。第三阶段采用大纲驱动 HTML/SVG/JavaScript 动画再导出 MP4，不依赖生图模型。人物故事默认采用清晰矢量／简洁插画人物，只有教师在需求或画面修改中明确要求像素风时才采用像素风并加载像素参考；公式、函数图像和实验保持清晰图形。教师明确的其他画风优先，模型自动产生的像素描述不作为像素风选择依据。已有封存预览保持原画风，重新生成完整视频才使用当前默认规则。管理员已移除“画插图”、每段画面数上下限和每分钟插图上限；画面描述保留，按教学内容与旁白节奏安排，不按旧数量范围拦截生成/改写/审核。原大纲结构的大小保护仍保留。
 
 有效模型用途为大纲/讲稿、审核、看图识别、Embedding、配音、联网搜索；必需项不再包含生图。看图识别仍用于参考素材。生成参数保留每位教师的并发任务数、重试次数、时长允许偏差和长期记忆。旧生图加密配置行保留但不使用，旧图片数量参数读取时忽略。HTML 自动生成与渲染业务链尚待第三阶段后续实施。
 
@@ -51,6 +54,7 @@ docker compose exec -T worker celery -A app.jobs.celery_app:celery_app inspect p
 后端：在 `backend` 运行 `uv run --env-file ../.env pytest -q`。只可使用独立 `TEST_DATABASE_URL`，不能指向开发/生产库，不能并行运行两套后端测试（fixtures 会清理测试表）。
 
 前端：在 `frontend` 运行 `npx vitest run --maxWorkers=1 --pool=threads` 和 `npm run build`（含 TypeScript 检查）。
+渲染端回归：先构建 renderer，在该镜像中只读挂载 `backend/tests` 到 `/checks`，设置 `HOME=/tmp`、`PYTHONPATH=/render`，运行 `python /checks/direct_determinism_checks.py`。使用与 Compose 相同的只读文件系统、离线网络、2 CPU、2 GiB 内存和 `/tmp` tmpfs。用例覆盖真实 SVG 阴影/透明转场的正反定位、累计 Canvas/DOM 与自主 CSS 动画的拒绝、正常 worker 子进程及短片 MP4 编解码。`renderer/capture.py` 在截图前临时移出并原位放回原 SVG 节点，使 Chromium 重建滤镜绘制缓存；不克隆角色节点、不再次执行 `renderFrame`，也不放宽像素差阈值。此捕获修复不修改封存 HTML、配音或动画运行版本。
 
 真实模型质量、联网额度和长文档效果需教师从界面提交任务验收；开发检查不读取或测试生产 `model_configs`。设计与计划见 `docs/superpowers/specs/2026-10-16-edu-video-agent-design.md` 和 `docs/superpowers/plans/2026-10-16-outline-agent.md`。
 

@@ -53,7 +53,7 @@ console.log(JSON.stringify([detached,offscreen,visible]));
     assert json.loads(output)==[0,0,1]
 
 
-@pytest.mark.parametrize(('subject','prompt','narration','expected'),[
+@pytest.mark.parametrize(('subject','prompt','narration','expected_character'),[
     ('语文','讲述孔融让梨的故事','孔融拿着梨走向哥哥。',True),
     ('语文','制作守株待兔动画','农夫每天守在树旁，等待兔子再次撞树。',True),
     ('语文','讲述亡羊补牢','牧羊人发现羊圈破了洞，立刻修好围栏。',True),
@@ -66,23 +66,21 @@ console.log(JSON.stringify([detached,offscreen,visible]));
     ('数学','用像素风展示函数图像','绘制函数曲线与坐标。',False),
     ('物理','科学家探索浮力的故事','科学家向学生讲述实验，展示浮力公式。',True),
 ])
-def test_story_request_requires_new_cast_without_pixelating_scientific_graphics(subject,prompt,narration,expected):
+def test_story_request_uses_simple_native_characters_without_sprite_cast(subject,prompt,narration,expected_character):
     from app.videos.direct_pipeline import html_generation_request
     from app.videos.quality import resolve_style
     snapshot={'title':'测试','prompt':prompt,'form_values':{'subject':subject},
               'film_expression':{'visual_prompt':'连续画面'},'outline':{},'style':resolve_style({'subject':subject})}
     request=html_generation_request(snapshot,[{'narration':narration}],4.)
-    assert ('sprite_library' in request)==expected
-    if expected:
-        catalog=request['sprite_library']
-        assert catalog['version']=='original-cast-1'
-        assert catalog['character_policy']['required'] is True
-        assert catalog['character_policy']['missing']=='nearest_available'
-        assert 'boy_blue' in catalog['characters'] and 'elder_scholar' in catalog['characters']
-        assert catalog['character_policy']['scientific_graphics']=='native_vector_canvas'
+    assert 'sprite_library' not in request
+    if expected_character:
+        assert '完整、可复用的整体角色' in request['animation_reference_adapter']
+        assert '整体移动' in request['animation_reference_adapter']
+    else:
+        assert '故事演绎中的人物' not in request['animation_reference_adapter']
 
 
-async def test_generated_story_embeds_required_usage_but_plain_graphics_do_not(monkeypatch):
+async def test_explicit_legacy_sprite_payload_still_embeds_runtime(monkeypatch):
     import httpx
     from app.videos.direct_html import generate_html
     from app.videos.sprite_assets import sprite_guidance
@@ -98,7 +96,7 @@ async def test_generated_story_embeds_required_usage_but_plain_graphics_do_not(m
     assert plain==source
 
 
-def test_sprite_story_uses_bounded_applicable_references_without_losing_teaching_content():
+def test_story_request_uses_bounded_animation_references_without_pixel_assets():
     from copy import deepcopy
     from app.videos.direct_pipeline import html_generation_request
     from app.videos.quality import resolve_style
@@ -114,23 +112,28 @@ def test_sprite_story_uses_bounded_applicable_references_without_losing_teaching
     references=request['animation_design_references']
     assert len(json.dumps(references,ensure_ascii=False).encode('utf-8')) <= 9000
     assert references and all(doc['content'].strip() and doc['commit'] and doc['path'] for doc in references)
-    assert {'animation-principles','2d-character-rig-animation','game-graphics'} <= {d['skill_id'] for d in references}
-    assert any(doc['path'].endswith('/pixel-art-reference.md') for doc in references)
+    reference_ids={d['skill_id'] for d in references}
+    assert {'animation-principles','game-graphics'} <= reference_ids
+    assert '2d-character-rig-animation' not in reference_ids
+    assert not any(doc['path'].endswith('/pixel-art-reference.md') for doc in references)
     assert all('gsap.' not in doc['content'] and chr(96)*3 not in doc['content'] for doc in references)
     assert (snapshot,targets)==before
     assert request['teacher_request']==snapshot['prompt']
     assert request['approved_outline']==snapshot['outline'] and request['segments']==targets
-    assert request['source_duration']==180. and request['sprite_library']['character_policy']['required'] is True
+    assert request['source_duration']==180. and 'sprite_library' not in request
+    assert '整体移动' in request['animation_reference_adapter']
 
 
-def test_mixed_sprite_story_retains_native_scientific_guidance():
+def test_mixed_story_retains_native_scientific_guidance_without_pixel_assets():
     from app.videos.direct_pipeline import html_generation_request
     from app.videos.quality import resolve_style
     snapshot={'title':'浮力的发现','prompt':'通过科学家的故事讲解浮力',
               'form_values':{'subject':'物理'},'style':resolve_style({'subject':'物理'}),
               'outline':{},'film_expression':{'visual_prompt':'人物演示与清晰公式图形并存'}}
     request=html_generation_request(snapshot,[{'narration':'科学家和学生观察物体入水，显示浮力公式。'}],20.)
-    assert request['sprite_library']['character_policy']['scientific_graphics']=='native_vector_canvas'
+    assert 'sprite_library' not in request
+    assert '人物作为整体' in request['animation_reference_adapter']
+    assert '公式、函数图像和实验保持清晰图形' in request['animation_reference_adapter']
     references=request['animation_design_references']
     assert any(d['skill_id']=='diagram-animation' and 'progressive disclosure' in d['content'] for d in references)
     assert len(json.dumps(references,ensure_ascii=False).encode('utf-8'))<=9000

@@ -5,6 +5,31 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import CreateVideoView from '../src/views/workbench/CreateVideoView.vue'
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear() })
 
+test('focus composer keeps all configured settings visible and search separate from the six settings', async () => {
+  const keys = ['subject','grade','textbook_edition','duration','aspect_ratio','voice']
+  const labels = ['科目','年级','教材版本','时长','视频尺寸','配音声音']
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({system_available:true,form_version:'v1',fields:[
+    {key:'prompt',label:'教学需求',options:[],default_by_subject:{}},
+    ...keys.map((key,i)=>({key,label:labels[i],default:key==='duration'?'custom':'default',options:[{value:key==='duration'?'custom':'default',label:'当前配置'}],default_by_subject:{}})),
+    {key:'web_search',label:'联网搜索',default:true,options:[],default_by_subject:{}},
+  ]}))))
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects/new',component:CreateVideoView}]})
+  await router.push('/projects/new')
+  const w=mount(CreateVideoView,{global:{plugins:[router,ElementPlus]}});await flushPromises()
+  expect(w.find('.creation-composer').exists()).toBe(true)
+  expect(w.find('.creation-title').exists()).toBe(false)
+  expect(w.get('h1.sr-only').text()).toBe('视频制作')
+  expect(w.get('.creation-welcome').text()).toBe('今天讲点啥？')
+  const settings=w.get('.creation-settings-grid')
+  expect(settings.findAll('.el-select')).toHaveLength(6)
+  for(const label of labels) expect(settings.text()).toContain(label)
+  expect(settings.find('input[aria-label="自定义分钟数"]').exists()).toBe(true)
+  expect(settings.find('[role=switch]').exists()).toBe(false)
+  expect(w.get('.composer-search').find('[role=switch]').exists()).toBe(true)
+  expect(w.find('details').exists()).toBe(false)
+  w.unmount()
+})
+
 test('system speech selection is saved and explains offline audio', async () => {
   const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>new Response(JSON.stringify(url.includes('/config/form')
     ? {system_available:true,form_version:'v1',fields:[{key:'voice',label:'配音声音',default:'external',options:[{value:'external',label:'模型配音'},{value:'system:zh-CN',label:'系统配音（离线普通话）'}],default_by_subject:{}}]}

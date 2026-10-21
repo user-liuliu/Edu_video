@@ -1,30 +1,32 @@
-/* 教学视频助手：方案 B 的工作台布局，方案 C 的暖色调。 */
+/* 前端 UI 设计最终稿：v3 简洁创作，蓝白教学工作区。 */
 :root {
-  --ev-color-primary: #b86b3d;
-  --ev-color-primary-dark: #9d572f;
-  --ev-color-secondary: #7c9d8b;
-  --ev-color-rail: #4a362c;
-  --ev-color-bg: #f6f3ee;
-  --ev-color-surface: #fffefc;
-  --ev-color-surface-muted: #fbf8f3;
-  --ev-color-text: #2e2a27;
-  --ev-color-muted: #6e6962;
-  --ev-color-danger: #b44d45;
-  --ev-color-success: #4d8065;
-  --ev-color-border: #e6ded5;
-  --ev-color-border-strong: #d6c9bc;
-  --ev-radius: 6px;
-  --ev-shadow-sm: 0 2px 8px rgba(86, 59, 42, 0.06);
-  --ev-shadow-md: 0 10px 26px rgba(86, 59, 42, 0.1);
+  --ev-color-primary: #2465d9;
+  --ev-color-primary-dark: #255eb6;
+  --ev-color-secondary: #5a83b5;
+  --ev-color-rail: #fafbfc;
+  --ev-color-bg: #ffffff;
+  --ev-color-surface: #ffffff;
+  --ev-color-surface-muted: #f7f9fc;
+  --ev-color-text: #252b38;
+  --ev-color-muted: #627087;
+  --ev-color-danger: #c44242;
+  --ev-color-success: #25815a;
+  --ev-color-border: #e4eaf2;
+  --ev-color-border-strong: #cbd7e6;
+  --ev-radius: 12px;
+  --ev-shadow-sm: 0 3px 16px rgba(24, 58, 107, 0.03);
+  --ev-shadow-md: 0 10px 30px rgba(24, 58, 107, 0.08);
+  --ev-sidebar-width: 216px;
+  --ev-header-height: 68px;
   --ev-font-sans: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --ev-font-display: "Songti SC", "STSong", "SimSun", serif;
+  --ev-font-display: var(--ev-font-sans);
 
   --el-color-primary: var(--ev-color-primary);
-  --el-color-primary-light-3: #c98b67;
-  --el-color-primary-light-5: #dfb9a0;
-  --el-color-primary-light-7: #eed7c9;
-  --el-color-primary-light-8: #f4e5dc;
-  --el-color-primary-light-9: #faf1eb;
+  --el-color-primary-light-3: #668fe3;
+  --el-color-primary-light-5: #a2beee;
+  --el-color-primary-light-7: #d0dff8;
+  --el-color-primary-light-8: #e2ecfc;
+  --el-color-primary-light-9: #f0f5ff;
   --el-color-primary-dark-2: var(--ev-color-primary-dark);
   --el-color-success: var(--ev-color-success);
   --el-color-success-light-9: #edf5ef;
@@ -36,9 +38,9 @@
   --el-bg-color: var(--ev-color-surface);
   --el-bg-color-page: var(--ev-color-bg);
   --el-border-color: var(--ev-color-border);
-  --el-border-color-light: #eee8e1;
-  --el-border-color-lighter: #f3eee8;
-  --el-border-radius-base: var(--ev-radius);
+  --el-border-color-light: #eaf0f7;
+  --el-border-color-lighter: #f0f3f8;
+  --el-border-radius-base: 8px;
   --el-border-radius-small: 4px;
   --el-font-family: var(--ev-font-sans);
 }
@@ -70,7 +72,7 @@ a,
 .el-input__wrapper,
 .el-select__wrapper { transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
 
-/* Keep browser-autofilled credentials aligned with the warm form surface. */
+/* Keep browser-autofilled credentials aligned with the form surface. */
 input:autofill,
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
@@ -110,8 +112,30 @@ input:-webkit-autofill:active {
 .ev-table td { padding: 12px 14px; border-bottom: 1px solid var(--el-border-color-lighter); text-align: left; vertical-align: top; }
 .ev-table thead th { background: var(--ev-color-surface-muted); color: var(--ev-color-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .ev-table tbody tr:last-child > * { border-bottom: 0; }
-.ev-table tbody tr:hover > * { background: #fffaf5; }
+.ev-table tbody tr:hover > * { background: var(--ev-color-surface-muted); }
 .ev-muted { color: var(--ev-color-muted); font-size: 13px; }
+
+.el-button { min-height: 40px; font-weight: 500; }
+.el-button > span { gap: 7px; }
+.el-button.is-text { min-height: 36px; }
+.el-input__wrapper, .el-select__wrapper { min-height: 44px; }
+.el-form-item__label { font-size: 13px; color: var(--ev-color-muted); }
+.el-textarea__inner { padding: 12px 14px; line-height: 1.8; }
+.el-dialog, .el-message-box { border-radius: 14px; }
+.el-dialog { max-width: calc(100vw - 32px); }
+.el-select-dropdown__item { min-height: 38px; line-height: 38px; }
+.el-tag { border-radius: 5px; }
+.el-alert { border-radius: 9px; }
+.el-empty { padding: 56px 16px; }
+.el-pagination { margin-top: 28px; justify-content: center; }
+
+@media (max-width: 1180px) { :root { --ev-sidebar-width: 192px; } }
+@media (max-width: 650px) {
+  :root { --ev-header-height: 60px; }
+  .el-input__inner, .el-textarea__inner { font-size: 16px; }
+  .el-message { max-width: calc(100vw - 24px); }
+  .el-message__content { overflow-wrap: anywhere; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

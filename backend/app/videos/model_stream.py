@@ -5,13 +5,16 @@ import logging
 import time
 import httpx
 
+MAX_TRANSIENT_RETRIES = 3
+
+
 async def animation_response(http, url, headers, payload):
     from app.outline.model_client import ModelCallError, _http_failure, _retry_delay
     logger = logging.getLogger(__name__)
-    # Retry transport/provider faults once without changing the frozen prompt.
+    # Retry transient transport/provider faults without changing the frozen prompt.
     # Permanent configuration errors must fail immediately; never log URLs,
     # exception messages, keys, prompts or provider response bodies.
-    for attempt in range(2):
+    for attempt in range(MAX_TRANSIENT_RETRIES + 1):
         response = None
         started = time.monotonic()
         exception_type = None
@@ -28,7 +31,7 @@ async def animation_response(http, url, headers, payload):
         except httpx.HTTPError as error:
             exception_type = type(error).__name__
             failure = ModelCallError('整片动画模型连接中断，请稍后重试', category='connection')
-        retry = attempt < 1 and failure.category in ('timeout', 'connection', 'rate_limit', 'unavailable')
+        retry = attempt < MAX_TRANSIENT_RETRIES and failure.category in ('timeout', 'connection', 'rate_limit', 'unavailable')
         logger.warning('animation_request_failed category=%s status=%s exception_type=%s retry=%s retry_count=%s elapsed_seconds=%.1f',
                        failure.category, failure.status_code, exception_type, retry, attempt, time.monotonic() - started)
         if not retry:
@@ -36,7 +39,7 @@ async def animation_response(http, url, headers, payload):
         await asyncio.sleep(_retry_delay(response, attempt))
 
 
-async def _animation_response_once(http, url, headers, payload):
+async def _animation_response_once(http, url, headers, payload, *, label='整片动画'):
     # Large animation JSON must not wait behind an upstream buffered response.
     # Discard partial streams, bound bytes and total time, then validate as usual.
     async def receive():
@@ -45,7 +48,7 @@ async def _animation_response_once(http, url, headers, payload):
                 data=bytearray()
                 async for chunk in response.aiter_bytes():
                     data.extend(chunk)
-                    if len(data)>2*1024*1024: raise ValueError('动画模型返回内容过大')
+                    if len(data)>2*1024*1024: raise ValueError(f'{label}模型返回内容过大')
                 # aiter_bytes has already decoded Content-Encoding. Do not ask
                 # httpx to decompress this body a second time.
                 decoded_headers={k:v for k,v in response.headers.items()
@@ -88,37 +91,37 @@ async def _animation_response_once(http, url, headers, payload):
                 return None
             async for chunk in response.aiter_bytes():
                 size+=len(chunk)
-                if size>8*1024*1024: raise ValueError('动画模型流式响应过大')
+                if size>8*1024*1024: raise ValueError(f'{label}模型流式响应过大')
                 buffer+=decoder.decode(chunk)
                 while '\n' in buffer:
                     line,buffer=buffer.split('\n',1)
                     error=consume(line)
                     if error is not None:return error
                     if done:break
-                if oversized:raise ValueError('动画模型生成内容过大')
+                if oversized:raise ValueError(f'{label}模型生成内容过大')
                 if done:break
             buffer+=decoder.decode(b'',final=True)
             if not done and buffer.strip():
                 error=consume(buffer)
                 if error is not None:return error
-            if oversized:raise ValueError('动画模型生成内容过大')
+            if oversized:raise ValueError(f'{label}模型生成内容过大')
             if finish_reason=='length':
                 from app.outline.model_client import ModelCallError
-                raise ModelCallError('整片动画模型达到输出长度上限，未生成完整HTML，请简化画面要求后重试',category='output_limit')
+                raise ModelCallError(f'{label}模型达到输出长度上限，未生成完整内容，请简化生成要求后重试',category='output_limit')
             if finish_reason=='content_filter':
                 from app.outline.model_client import ModelCallError
-                raise ModelCallError('整片动画模型未通过服务方内容限制，请调整内容后重试',category='invalid_request')
+                raise ModelCallError(f'{label}模型未通过服务方内容限制，请调整内容后重试',category='invalid_request')
             # An incomplete stream is a transport failure, not bad generated
             # HTML. Discard it and retry the original request within the budget.
             if not valid or not done or not finished:
                 from app.outline.model_client import ModelCallError
-                raise ModelCallError('整片动画模型响应中断或未完整返回，请重试', category='connection')
+                raise ModelCallError(f'{label}模型响应中断或未完整返回，请重试', category='connection')
             result=''.join(content)
             return httpx.Response(200,json={'choices':[{'message':{'content':result}}]})
     try:
         return await asyncio.wait_for(receive(),timeout=300)
     except asyncio.TimeoutError:
-        raise httpx.ReadTimeout('动画模型返回超时') from None
+        raise httpx.ReadTimeout(f'{label}模型返回超时') from None
 
 
 def _stream_error_response(error, headers):

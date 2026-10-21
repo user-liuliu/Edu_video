@@ -23,7 +23,7 @@ function tick(){
  if(el&&segment){time.value=Math.min(props.duration,el.currentTime);emit('time',time.value);postTime()}
  raf=requestAnimationFrame(tick)
 }
-function updateTime(){const segment=props.segments[0];if(segment&&audio.value){time.value=Math.min(props.duration,audio.value.currentTime);emit('time',time.value);postTime()}}
+function updateTime(){const segment=props.segments[0];if(ready.value&&segment&&audio.value){time.value=Math.min(props.duration,audio.value.currentTime);emit('time',time.value);postTime()}}
 function cleanup(){
  controller?.abort();clearTimeout(readyTimeout);clearTimeout(renderTimeout);pendingRender=0;renderedTime=-1;clearInterval(readyRetry);settleReady?.(false);settleReady=undefined
  audio.value?.pause();audio.value?.removeAttribute('src');audio.value?.load()

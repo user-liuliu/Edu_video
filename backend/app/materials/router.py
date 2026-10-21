@@ -11,9 +11,10 @@ from sqlalchemy import select, func
 from app.auth import require_active_user
 from app.db import get_session
 from app.errors import api_error
-from app.models import Material, MaterialChunk, OutlineJob, ObjectCleanup, User
+from app.models import Material, MaterialChunk, OutlineJob, User
 from app.projects.service import get_owned_project
 from app.jobs.service import create_job, require_idle
+from app.jobs.dispatcher import enqueue_object_cleanup
 from app.settings_store import get_form_fields
 from .parsers import validate_document
 from .storage import MaterialStorage
@@ -92,7 +93,7 @@ async def upload(project_id: UUID, request: Request, file: UploadFile=File(...),
         await db.rollback()
         try: await asyncio.to_thread(storage.delete, key)
         except Exception:
-            db.add(ObjectCleanup(object_key=key)); await db.commit()
+            await enqueue_object_cleanup(db, [key]); await db.commit()
         raise api_error(503, 'upload_failed', '素材保存失败，请重试') from None
     return MaterialView(**MaterialView.model_validate(material).model_dump(exclude={'job_id'}), job_id=job.id if job else None)
 
@@ -136,7 +137,7 @@ async def delete_material(project_id: UUID, material_id: UUID, db=Depends(get_se
     await require_idle(db,project)
     material = await owned_material(db,user.id,project_id,material_id)
     keys = list((await db.scalars(select(MaterialChunk.image_key).where(MaterialChunk.material_id==material.id, MaterialChunk.owner_id==user.id, MaterialChunk.image_key.is_not(None)))).all())
-    for key in [material.object_key, *keys]: db.add(ObjectCleanup(object_key=key))
+    await enqueue_object_cleanup(db, [material.object_key, *keys])
     if project.outline:
         project.needs_regeneration=True;project.status='outline_ready';project.revision+=1
     await db.delete(material)

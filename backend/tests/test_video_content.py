@@ -11,7 +11,7 @@ def test_explicit_style_overrides_subject_and_legacy_selection_is_ignored():
     assert resolve_style({'subject': '数学', 'style': 'story_sketch'})['value'] == 'science_animation'
     assert resolve_style({'subject': '数学', 'style': 'story_sketch'})['source'] == 'subject'
     assert resolve_style({'subject': '物理', 'style': 'auto'})['value'] == 'science_animation'
-    assert resolve_style({'subject': '语文', 'style': 'auto'})['value'] == 'pixel_story'
+    assert resolve_style({'subject': '语文', 'style': 'auto'})['value'] == 'vector_story'
 
 
 def test_sentence_timeline_uses_real_audio_lengths_and_preserves_text():
@@ -121,11 +121,11 @@ def test_video_chunks_keep_connected_sentences_and_every_character():
 
 
 @pytest.mark.parametrize('subject',['语文','历史','道德与法治','数学','物理','化学','生物'])
-def test_automatic_style_defines_pixel_stories_and_clear_scientific_graphics(subject):
+def test_automatic_style_defines_vector_stories_and_clear_scientific_graphics(subject):
     from app.videos.quality import resolve_style
     style=resolve_style({'subject':subject})
-    assert style['defaults']=={'character_stories':'detailed_pixel_art','formulas_graphs_experiments':'clean_graphics'}
+    assert style['defaults']=={'character_stories':'clear_vector_illustration','formulas_graphs_experiments':'clean_graphics'}
     if subject in ['数学','物理','化学','生物']:
         assert style['value']=='science_animation'
     else:
-        assert style['value']=='pixel_story'
+        assert style['value']=='vector_story'

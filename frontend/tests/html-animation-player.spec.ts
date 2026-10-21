@@ -29,6 +29,14 @@ test('a ready script without a rendered frame never enables playback',async()=>{
  expect(w.get('[role=alert]').text()).toContain('动画')
 })
 
+test('audio timeupdate before the animation handshake cannot block its first frame',async()=>{
+ const w=await setup()
+ await w.get('audio').trigger('timeupdate')
+ await connect()
+ expect(w.get('button.play-toggle').attributes('disabled')).toBeUndefined()
+ expect(w.find('[role=alert]').exists()).toBe(false)
+})
+
 test('a foreign or stale render acknowledgement cannot enable playback',async()=>{
  const w=await setup(),post=await connect(false),iframe=w.get('iframe')
  const render=post.mock.calls.find(c=>(c[0] as any)?.type==='edu-preview:render')![0] as any

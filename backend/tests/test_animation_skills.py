@@ -79,14 +79,18 @@ def test_uncategorized_subject_uses_style_or_content_fallback(segment,style,sele
 @pytest.mark.parametrize(('segment','style','character','pixel'), [
     ({'subject':'语文','narration':'孔融将梨递给哥哥','teacher_request':'细腻的像素风故事'}, {'value':'按科目自动'}, True, True),
     ({'subject':'数学','narration':'绘制二次函数的抛物线'}, {'value':'按科目自动'}, False, False),
-    ({'subject':'物理','visuals':'老师拿起电池，学生连接电路'}, {'value':'按科目自动'}, True, False),
+    ({'subject':'物理','visuals':'老师拿起电池，学生连接电路'}, {'value':'按科目自动'}, False, False),
     ({'subject':'语文','narration':'孔融与哥哥分享梨','teacher_request':'不要像素风，采用水墨'}, {'value':'按科目自动'}, True, False),
     ({'subject':'语文','narration':'孔融递梨'}, {'value':'水墨风','source':'selection'}, True, False),
 ])
 def test_character_and_pixel_guidance_follow_content_and_teacher_intent(segment,style,character,pixel):
     from app.videos.skill_guidance import animation_guidance
     result=animation_guidance(segment,style)
-    assert ('2d-character-rig-animation' in result['skill_ids']) == character
+    assert '2d-character-rig-animation' not in result['skill_ids']
+    if character:
+        assert '故事演绎中的人物' in result['runtime_adapter']
+    else:
+        assert '故事演绎中的人物' not in result['runtime_adapter']
     assert any(d['path'].endswith('/pixel-art-reference.md') for d in result['documents']) == pixel
     assert result['style']==style
     assert result['runtime_adapter']
@@ -123,24 +127,24 @@ def test_local_style_revision_supersedes_original_pixel_request():
 
 
 @pytest.mark.parametrize(('subject','content','teacher_text','pixel'),[
-    ('语文','大禹带领百姓疏通河道，三过家门而不入。','讲述大禹治水的故事',True),
-    ('历史','商人和旅人沿道路运输货物。','讲述古代商人的故事',True),
+    ('语文','大禹带领百姓疏通河道，三过家门而不入。','讲述大禹治水的故事',False),
+    ('历史','商人和旅人沿道路运输货物。','讲述古代商人的故事',False),
     ('数学','观察二次函数图像与公式。','讲解二次函数',False),
     ('物理','老师连接电路，观察电流表。','演示串联电路实验',False),
     ('地理','展示水循环过程示意图。','讲解水循环',False),
     ('语文','大禹带领百姓疏通河道。','用水墨风讲述大禹治水',False),
     ('语文','大禹带领百姓疏通河道。','不要使用像素风',False),
-    ('物理','科学家的故事，配合展示实验和公式。','通过科学家的故事讲解浮力',True),
-    ('综合实践','人物把工具递给同伴。','演示两人合作',True),
+    ('物理','科学家的故事，配合展示实验和公式。','通过科学家的故事讲解浮力',False),
+    ('综合实践','人物把工具递给同伴。','演示两人合作',False),
     ('语文','展示字词笔顺与结构。','讲解汉字的结构图像',False),
     ('语文','古人沿河行走。','人物故事采用剪纸风',False),
     ('语文','古人沿河行走。','Tell the story in watercolor style',False),
-    ('语文','人物使用统一手绘风格，沿河行走。','讲述治水故事',True),
+    ('语文','人物使用统一手绘风格，沿河行走。','讲述治水故事',False),
     ('数学','显示公式与函数曲线。','不要故事、不要人物，只展示公式与函数图像',False),
     ('语文','逐笔演示汉字的书写顺序。','讲解汉字笔顺',False),
     ('数学','Display the graph and formula.','Use a graph to teach the history of the coordinate system',False),
 ])
-def test_default_pixel_story_references_keep_graphics_and_explicit_styles(subject,content,teacher_text,pixel):
+def test_vector_story_defaults_keep_graphics_and_explicit_styles(subject,content,teacher_text,pixel):
     from app.videos.quality import resolve_style
     from app.videos.skill_guidance import animation_guidance
     result=animation_guidance({'subject':subject,'narration':content,'teacher_request':teacher_text},resolve_style({'subject':subject}))
@@ -151,16 +155,38 @@ def test_default_pixel_story_references_keep_graphics_and_explicit_styles(subjec
 def test_mixed_story_keeps_pixel_and_diagram_references_within_budget():
     from app.videos.quality import resolve_style
     from app.videos.skill_guidance import animation_guidance
-    result=animation_guidance({'subject':'物理','teacher_request':'科学家探索浮力的故事',
+    result=animation_guidance({'subject':'物理','teacher_request':'用像素风讲述科学家探索浮力的故事',
                                'visuals':'人物在水边做实验，清晰标注浮力公式'},resolve_style({'subject':'物理'}))
     assert 'diagram-animation' in result['skill_ids']
     assert any(d['path'].endswith('/pixel-art-reference.md') for d in result['documents'])
     assert len(json.dumps(result,ensure_ascii=False)) <= 23500
 
 
-def test_motion_only_revision_keeps_default_pixel_story_references():
+def test_motion_only_revision_keeps_vector_story_without_pixel_references():
     from app.videos.quality import resolve_style
     from app.videos.skill_guidance import animation_guidance
     result=animation_guidance({'subject':'语文','teacher_request':'讲述人物故事',
                                'teacher_visual_instruction':'动作不要太卡通夸张，走慢一点'},resolve_style({'subject':'语文'}))
-    assert any(d['path'].endswith('/pixel-art-reference.md') for d in result['documents'])
+    assert not any(d['path'].endswith('/pixel-art-reference.md') for d in result['documents'])
+
+
+@pytest.mark.parametrize(('teacher','revision','style','pixel'), [
+    ('讲述空城计', '', {'value':'vector_story','source':'subject'}, False),
+    ('讲述空城计', '', {'value':'pixel_story','source':'subject'}, False),
+    ('讲述空城计', '', {'value':'按科目自动'}, False),
+    ('用像素风讲故事', '', {'value':'vector_story','source':'subject'}, True),
+    ('Tell the story using pixel art', '', {}, True),
+    ('讲述空城计', '', {'value':'pixel art','source':'selection'}, True),
+    ('讲述空城计', '改为像素风', {}, True),
+    ('用像素风讲故事', '改为矢量插画', {}, False),
+    ('用像素风讲故事', 'use vector illustration', {}, False),
+    ('用像素风讲故事', '动作平滑一点', {}, True),
+    ('不用像素风讲故事', '', {}, False),
+])
+def test_only_explicit_teacher_style_loads_pixel_reference(teacher,revision,style,pixel):
+    from app.videos.skill_guidance import animation_guidance
+    result=animation_guidance({'subject':'语文','teacher_request':teacher,
+        'teacher_visual_instruction':revision,'whole_film_visual_prompt':'像素人物与场景',
+        'visuals':'pixel art characters'},style)
+    assert any(d['path'].endswith('/pixel-art-reference.md') for d in result['documents']) is pixel
+    assert result['story_characters']

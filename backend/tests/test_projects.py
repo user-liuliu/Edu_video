@@ -1,8 +1,10 @@
 from conftest import login
+import httpx
 import pytest
 from uuid import UUID
+from sqlalchemy import func, select
 
-from app.models import OutlineJob, VideoProject, VideoVersion
+from app.models import ObjectCleanup, OutlineJob, VideoProject, VideoSegment, VideoVersion
 
 
 async def add_video_version(db, project, *, status='succeeded', media_key='videos/final.mp4', number=1):
@@ -36,6 +38,54 @@ async def test_project_crud_and_revision(teacher_client):
     assert listing['total'] == 1 and listing['items'][0]['prompt'] == '用投篮讲二次函数'
     assert (await teacher_client.delete(f"/api/projects/{project['id']}?revision=2")).status_code == 204
     assert (await teacher_client.get(f"/api/projects/{project['id']}")).status_code == 404
+
+
+@pytest.mark.parametrize('queued_key', ['', 'videos/shared.mp4'])
+async def test_project_delete_ignores_empty_and_already_queued_object_keys(app, teacher_client, db, queued_key):
+    project = await create(teacher_client, title='含空素材键的项目')
+    project_id = UUID(project['id'])
+    row = await db.get(VideoProject, project_id)
+    version = await add_video_version(db, row)
+    db.add(VideoSegment(
+        version_id=version.id,
+        outline_segment_id=UUID('00000000-0000-0000-0000-000000000001'),
+        position=0,
+        title='片段',
+        narration='旁白',
+        assets={'audio_instruction': '', 'visual_instruction': '', 'audio': 'videos/shared.mp4', 'hashes': {}},
+    ))
+    db.add(ObjectCleanup(object_key=queued_key))
+    await db.commit()
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test', cookies=teacher_client.cookies) as client:
+        response = await client.delete(f"/api/projects/{project['id']}?revision={project['revision']}")
+
+    assert response.status_code == 204, response.text
+    assert await db.scalar(select(func.count()).select_from(VideoProject).where(VideoProject.id == project_id)) == 0
+    queued_keys = (await db.scalars(select(ObjectCleanup.object_key))).all()
+    expected_keys = ['videos/final.mp4', 'videos/shared.mp4']
+    if queued_key == '':
+        expected_keys.insert(0, '')
+    assert sorted(queued_keys) == expected_keys
+
+
+async def test_project_delete_does_not_queue_modification_instructions(teacher_client, db):
+    project = await create(teacher_client)
+    row = await db.get(VideoProject, UUID(project['id']))
+    version = await add_video_version(db, row)
+    db.add(VideoSegment(
+        version_id=version.id,
+        outline_segment_id=UUID('00000000-0000-0000-0000-000000000002'),
+        position=0, title='片段', narration='旁白',
+        assets={'audio_instruction': '放慢语速', 'visual_instruction': '放大图像', 'captions': 'videos/captions.json'},
+    ))
+    await db.commit()
+
+    response = await teacher_client.delete(f"/api/projects/{project['id']}?revision={project['revision']}")
+
+    assert response.status_code == 204, response.text
+    assert sorted((await db.scalars(select(ObjectCleanup.object_key))).all()) == ['videos/captions.json', 'videos/final.mp4']
 
 
 async def test_project_lists_separate_completed_videos_from_drafts(teacher_client, db):
