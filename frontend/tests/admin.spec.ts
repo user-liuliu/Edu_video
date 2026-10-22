@@ -224,11 +224,11 @@ test('users: action buttons by status', async () => {
 
   expect(buttons(row(w, '张老师'))).toEqual(['通过', '拒绝'])
   expect(row(w, '张老师').text()).toContain('待审核')
-  expect(buttons(row(w, '李老师'))).toEqual(['停用', '重置密码', '设为管理员'])
+  expect(buttons(row(w, '李老师'))).toEqual(['积分兑换码', '停用', '重置密码', '设为管理员'])
   expect(row(w, '李老师').text()).toContain('老师')
   expect(buttons(row(w, '赵老师'))).toEqual(['启用', '重置密码'])
   expect(buttons(row(w, '钱老师'))).toEqual(['通过'])
-  expect(buttons(row(w, 'admin'))).toEqual(['停用', '重置密码', '取消管理员'])
+  expect(buttons(row(w, 'admin'))).toEqual(['积分兑换码', '停用', '重置密码', '取消管理员'])
   expect(row(w, 'admin').text()).toContain('管理员')
   // 注册时间按本地时间显示
   expect(row(w, '张老师').text()).toContain(new Date('2026-10-16T08:30:00Z').toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }))

@@ -20,7 +20,9 @@ async def test_register_creates_pending(client, db):
     assert r.status_code == 201 and r.json()["status"] == "pending"
     body = r.json()
     assert body["username"] == "Teacher_Wang" and body["role"] == "teacher"
-    assert set(body) == {"id", "username", "role", "status", "created_at"}  # 不带密码或哈希
+    assert set(body) == {
+        "id", "username", "role", "status", "created_at", "display_name", "gender", "school", "avatar_url"
+    }  # 不带密码或哈希
     assert (await client.get("/api/auth/me")).status_code == 401  # 注册后不自动登录
 
 
@@ -76,7 +78,9 @@ async def test_login_case_insensitive_and_me(client, make_user):
         "/api/auth/login", json={"username": "teacher_wang ", "password": "pass1234"}
     )
     assert r.status_code == 200 and (await client.get("/api/auth/me")).json()["username"] == "Teacher_Wang"
-    assert set(r.json()) == {"id", "username", "role", "status", "created_at"}
+    assert set(r.json()) == {
+        "id", "username", "role", "status", "created_at", "display_name", "gender", "school", "avatar_url"
+    }
 
 
 async def test_login_wrong_password_and_unknown_user_same_error(client, make_user):

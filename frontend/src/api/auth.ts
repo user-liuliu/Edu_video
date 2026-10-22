@@ -1,7 +1,13 @@
 /** 后端 /api/auth/* 接口。 */
 import { request } from './http'
 
+export type UserGender = 'unspecified' | 'male' | 'female' | 'undisclosed'
+
 export type CurrentUser = {
+  display_name?: string | null
+  gender?: UserGender
+  school?: string | null
+  avatar_url?: string | null
   id: string
   username: string
   role: 'teacher' | 'admin'

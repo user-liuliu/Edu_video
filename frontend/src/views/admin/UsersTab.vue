@@ -17,6 +17,7 @@ import {
 import { errorText } from '../../api/http'
 import { useAuthStore } from '../../stores/auth'
 import { PASSWORD_HINT, confirmRules, passwordRules } from '../authRules'
+import UserCreditCodes from './UserCreditCodes.vue'
 
 const ROLE_TEXT: Record<UserRole, string> = { teacher: '老师', admin: '管理员' }
 const STATUS_TEXT: Record<UserStatus, string> = {
@@ -28,6 +29,10 @@ const STATUS_TEXT: Record<UserStatus, string> = {
 // 对自己的账号操作时额外提醒（停用、重置密码会让自己的会话失效）
 const SELF_RELOGIN_NOTE = '这是你自己的账号，操作后你需要重新登录'
 
+const creditUser = ref<UserOut | null>(null)
+function setCreditDialogOpen(open: boolean) {
+  if (!open) creditUser.value = null
+}
 const auth = useAuthStore()
 const isSelf = (u: UserOut) => u.id === auth.user?.id
 
@@ -295,6 +300,7 @@ function onPasswordClosed() {
             <td class="time">{{ formatTime(u.created_at) }}</td>
             <td>{{ u.video_count ?? 0 }}</td>
             <td class="actions">
+              <el-button v-if="u.status === 'active'" size="small" @click="creditUser = u">积分兑换码</el-button>
               <el-button
                 v-for="a in actionsFor(u)"
                 :key="a.label"
@@ -327,6 +333,7 @@ function onPasswordClosed() {
       @size-change="onPageSizeChange"
     />
 
+    <el-dialog :model-value="!!creditUser" title="积分兑换码" width="min(640px, 94vw)" destroy-on-close @update:model-value="setCreditDialogOpen"><UserCreditCodes v-if="creditUser" :key="creditUser.id" :user="creditUser"/></el-dialog>
     <el-dialog v-model="pw.open" :title="`重置密码：${pw.user?.username ?? ''}`" width="420px" @closed="onPasswordClosed">
       <p v-if="pw.user && isSelf(pw.user)" class="self-note">{{ SELF_RELOGIN_NOTE }}</p>
       <el-form ref="pwFormRef" :model="pw" :rules="pwRules" label-position="top" @submit.prevent="submitPassword">

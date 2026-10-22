@@ -22,6 +22,8 @@ function makeRouter() {
       { path: '/projects/:id/outline', name: 'project-outline', component: OutlineView },
       { path: '/drafts', name: 'project-drafts', component: Empty },
       { path: '/preferences', name: 'preferences', component: Empty },
+      { path: '/account', name: 'account-settings', component: Empty },
+      { path: '/account/balance', name: 'account-balance', component: Empty },
       {
         path: '/admin',
         name: 'admin',
@@ -71,7 +73,8 @@ test('header shows brand, username, logout and landmarks', async () => {
   expect(w.find('nav').text()).toContain('退出')
   expect(w.find('[aria-label="教师导航"]').text()).toContain('视频制作')
   expect(w.find('[aria-label="教师导航"]').text()).toContain('草稿箱')
-  expect(w.find('[aria-label="教师导航"]').text()).toContain('我的偏好')
+  expect(w.find('[aria-label="教师导航"]').text()).toContain('账户设置')
+  expect(w.find('[aria-label="教师导航"]').text()).not.toContain('我的偏好')
   expect(w.find('main').exists()).toBe(true)
 })
 
@@ -90,7 +93,7 @@ test('sidebar can collapse and expand while all navigation links remain accessib
   await toggle.trigger('click')
   expect(w.get('.app-shell').classes()).toContain('rail-collapsed')
   expect(w.get('button[aria-label="展开侧边栏"]').attributes('aria-expanded')).toBe('false')
-  expect(w.findAll('.rail-link')).toHaveLength(5)
+  expect(w.findAll('.rail-link')).toHaveLength(4)
   expect(w.findAll('.rail-link').every(link=>!!link.attributes('title'))).toBe(true)
   await w.get('button[aria-label="展开侧边栏"]').trigger('click')
   expect(w.get('.app-shell').classes()).not.toContain('rail-collapsed')
@@ -99,7 +102,7 @@ test('sidebar can collapse and expand while all navigation links remain accessib
 test('light rail has decorative icons with readable links and no duplicate new entry', async () => {
   const w=await mountAs('teacher', '/projects/new')
   const links=w.findAll('.rail-link')
-  expect(links).toHaveLength(5)
+  expect(links).toHaveLength(4)
   expect(links.every(link=>link.find('svg[aria-hidden="true"]').exists())).toBe(true)
   expect(links.find(link=>link.text()==='视频制作')?.attributes('aria-current')).toBe('page')
   expect(w.find('.skip-link[href="#main-content"]').exists()).toBe(true)
@@ -114,6 +117,12 @@ test('header uses the sticky navigation variant', async () => {
 test('teacher does not see admin entry', async () => {
   const w = await mountAs('teacher')
   expect(w.text()).not.toContain('管理后台')
+})
+
+test('balance page selects only the balance entry in the teacher rail', async () => {
+  const w = await mountAs('teacher', '/account/balance')
+  expect(w.get('.balance-link').attributes('aria-current')).toBe('page')
+  expect(w.findAll('.rail-link[aria-current=page]')).toHaveLength(0)
 })
 
 test('admin sees admin entry', async () => {

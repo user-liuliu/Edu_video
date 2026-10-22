@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     // 开发时把 /api 转发给 FastAPI 后端
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': { target: 'http://localhost:8000', changeOrigin: false },
     },
   },
   build: {

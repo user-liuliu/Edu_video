@@ -11,13 +11,17 @@ from app.settings_store import GenerationParams, put_generation_params
 from test_outline_review_states import reviewed
 
 
-async def ready_project(db, client, box):
+async def ready_project(db, client, box, *, credits=1000):
     result = await client.post('/api/projects', json={'title': '一次函数', 'prompt': '讲解一次函数'})
     project = await db.get(VideoProject, UUID(result.json()['id']))
     # These existing model-voice scenarios explicitly exercise the configured TTS.
     project.form_values={**project.form_values,'voice':'voice'}
     project.outline = mark_saved({'segments': [reviewed()]})
     project.status = 'outline_confirmed'
+    # Existing video scenarios start with explicit disposable test credits.
+    from app.models import CreditWallet
+    if credits and not await db.get(CreditWallet, project.owner_id):
+        db.add(CreditWallet(owner_id=project.owner_id, balance=credits))
     for purpose in ('outline_llm', 'tts', 'review_llm'):
         if not await db.get(ModelConfigRow, purpose):
             db.add(ModelConfigRow(purpose=purpose, enabled=True, base_url='https://model.invalid/v1', model='model', api_key_encrypted=box.encrypt('test-key'), extra={'voices': [{'speaker_id': 'voice', 'label': '讲师'}]} if purpose == 'tts' else {}))

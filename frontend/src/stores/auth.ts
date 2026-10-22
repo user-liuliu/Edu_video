@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import * as authApi from '../api/auth'
 import type { CurrentUser } from '../api/auth'
 import { ApiError } from '../api/http'
@@ -9,6 +9,12 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<CurrentUser | null>(null)
   // 是否已经向后端确认过登录状态
   const loaded = ref(false)
+  const avatarRevision = ref(0)
+  const avatarUrl = computed(() => {
+    const url = user.value?.avatar_url
+    return url ? `${url}${url.includes('?') ? '&' : '?'}v=${avatarRevision.value}` : null
+  })
+  function refreshAvatar() { avatarRevision.value += 1 }
 
   /** 查询当前登录用户；401 表示未登录，user 置为 null。其他错误继续抛出。 */
   async function fetchMe(): Promise<void> {
@@ -40,5 +46,5 @@ export const useAuthStore = defineStore('auth', () => {
     return authApi.register(username, password)
   }
 
-  return { user, loaded, fetchMe, login, logout, register }
+  return { user, loaded, avatarUrl, refreshAvatar, fetchMe, login, logout, register }
 })

@@ -3,6 +3,7 @@ import re
 from uuid import uuid4
 from sqlalchemy import func, select
 from app.errors import api_error
+from app.credits.service import reserve_video
 from app.jobs.service import create_job, require_generation_capacity, require_idle, JobView
 from app.models import OutlineJob, VideoVersion, VideoSegment
 from app.outline.review import needs_save, review_state
@@ -152,6 +153,7 @@ async def start_video(db, user, project_id, body, box, *, source_version_id=None
             for narration in narration_chunks(section['narration']):
                 db.add(VideoSegment(version_id=version.id,outline_segment_id=section['id'],position=position,title=section['title'],narration=narration))
                 position+=1
+    await reserve_video(db, job, project.title)
     project.status='video_generating'
     await db.commit(); await db.refresh(version)
     return version

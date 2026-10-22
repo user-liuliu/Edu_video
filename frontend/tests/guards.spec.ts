@@ -23,14 +23,14 @@ test.each([
 
 test.each([
   'project-create', 'project-list', 'project-edit', 'project-outline',
-  'project-drafts', 'preferences',
+  'project-drafts', 'preferences', 'account-settings',
 ])('admin cannot enter teacher route %s', (name) => {
   expect(decideRoute({ name, meta: {} }, T('active', 'admin'))).toEqual({ name: 'admin-page-config' })
 })
 
 test.each([
   'project-create', 'project-list', 'project-edit', 'project-outline',
-  'project-drafts', 'preferences',
+  'project-drafts', 'preferences', 'account-settings',
 ])('teacher can still enter teacher route %s', (name) => {
   expect(decideRoute({ name, meta: {} }, T('active'))).toBe(true)
 })

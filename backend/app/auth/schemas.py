@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models import UserRole, UserStatus
+from app.models import UserGender, UserRole, UserStatus
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fff]+$")
 USERNAME_MIN, USERNAME_MAX = 3, 32
@@ -45,7 +45,7 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=PASSWORD_MAX)
 
 
-class UserOut(BaseModel):
+class UserSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -53,3 +53,10 @@ class UserOut(BaseModel):
     role: UserRole
     status: UserStatus
     created_at: datetime
+
+
+class UserOut(UserSummary):
+    display_name: str | None = None
+    gender: UserGender = UserGender.unspecified
+    school: str | None = None
+    avatar_url: str | None = None

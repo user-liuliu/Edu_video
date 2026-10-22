@@ -28,11 +28,15 @@ export const router = createRouter({
         { path: 'projects/:id/video', name: 'project-video', component: () => import('../views/workbench/VideoPreviewView.vue') },
         { path: 'projects', name: 'project-list', component: () => import('../views/workbench/ProjectListView.vue') },
         { path: 'drafts', name: 'project-drafts', component: () => import('../views/workbench/ProjectListView.vue') },
-        { path: 'preferences', name: 'preferences', component: () => import('../views/workbench/PreferencesView.vue') },
+        { path: 'account/balance', name: 'account-balance', component: () => import('../views/workbench/BalanceView.vue') },
+        { path: 'account', name: 'account-settings', component: () => import('../views/workbench/AccountSettingsView.vue') },
+        { path: 'preferences', name: 'preferences', redirect: { name: 'account-settings', query: { tab: 'preferences' } } },
         { path: '', name: 'home', component: () => import('../views/HomeView.vue'), beforeEnter: to => {
-          const destinations:Record<string,string>={make:'project-create',videos:'project-list',drafts:'project-drafts',memory:'preferences'}
-          const section=String(to.query.section??'videos')
-          if (section!=='account' && useAuthStore().user?.role!=='admin') return {name:destinations[section]??'project-list'}
+          if (useAuthStore().user?.role === 'admin') return
+          const section = String(to.query.section ?? 'videos')
+          if (section === 'account' || section === 'memory') return { name: 'account-settings', query: { tab: section === 'memory' ? 'preferences' : 'profile' } }
+          const destinations: Record<string, string> = { make: 'project-create', videos: 'project-list', drafts: 'project-drafts' }
+          return { name: destinations[section] ?? 'project-list' }
         } },
         {
           path: 'admin',

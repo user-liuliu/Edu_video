@@ -1,6 +1,10 @@
 <script setup lang="ts">
 defineProps<{ name: string }>()
 const paths: Record<string, string> = {
+  wallet: 'M4 6V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4V7Zm11 4h5v6h-5a3 3 0 0 1 0-6Zm1 3h.01',
+  ticket: 'M4 4h16v5a3 3 0 0 0 0 6v5H4v-5a3 3 0 0 0 0-6V4Zm9 3v2m0 3v2m0 3v1',
+  receipt: 'M5 3h14v18l-3-2-4 2-4-2-3 2V3Zm4 5h6m-6 4h6m-6 4h3',
+
   'chevrons-left': 'm13 7-5 5 5 5m6-10-5 5 5 5',
   'chevrons-right': 'm5 7 5 5-5 5m6-10 5 5-5 5',
   'panel-close': 'M3 4h18v16H3ZM9 4v16m7-12-4 4 4 4',

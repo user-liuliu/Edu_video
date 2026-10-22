@@ -10,7 +10,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.admin import settings_router as admin_settings_router
 from app.admin import users_router as admin_users_router
+from app.account.router import router as account_router
 from app.auth import router as auth_router
+from app.credits.router import router as credits_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
 from app.errors import validation_error_handler
@@ -63,6 +65,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "db": True}
 
     app.include_router(auth_router)
+    app.include_router(account_router)
+    app.include_router(credits_router)
     app.include_router(admin_users_router)
     app.include_router(admin_settings_router)
     app.include_router(model_configs_router)
