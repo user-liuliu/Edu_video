@@ -9,29 +9,47 @@ from pydantic import BaseModel, ConfigDict
 class StrictModel(BaseModel):
     model_config=ConfigDict(extra="forbid",allow_inf_nan=False)
 
-EXPRESSION_PROTOCOL = 'whole-film-expression-3'
+EXPRESSION_PROTOCOL = 'whole-film-expression-4'
+
+
+class FilmCharacter(StrictModel):
+    id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,48}$')
+    appearance: str = Field(min_length=1, max_length=1500)
 
 
 class ExpressionSegment(StrictModel):
     id: str
     narration: str = Field(min_length=1, max_length=600)
     visual_prompt: str = Field(min_length=1, max_length=4000)
+    scene_id: str = Field(min_length=1, max_length=120)
+    character_ids: list[str] = Field(max_length=40)
+    entry_state: str = Field(min_length=1, max_length=1500)
+    exit_state: str = Field(min_length=1, max_length=1500)
     transition_in: str = Field(min_length=1, max_length=1000)
     transition_out: str = Field(min_length=1, max_length=1000)
 
 
 class FilmExpression(StrictModel):
     visual_prompt: str = Field(min_length=1, max_length=6000)
+    characters: list[FilmCharacter] = Field(max_length=80)
     segments: list[ExpressionSegment] = Field(min_length=1, max_length=500)
 
 
 def validate_expression(value, snapshot, targets):
     result = FilmExpression.model_validate(value).model_dump()
+    character_ids = [item['id'] for item in result['characters']]
+    if len(character_ids) != len(set(character_ids)):
+        raise ValueError('整片人物设定存在重复标识，请重试')
+    known_characters = set(character_ids)
     if [s['id'] for s in result['segments']] != [str(t['id']) for t in targets]:
         raise ValueError('整片讲稿片段映射不完整，请重试')
+    if any(not item['appearance'].strip() for item in result['characters']):
+        raise ValueError('整片人物外观设定为空，请重试')
     for segment, target in zip(result['segments'], targets):
-        for key in ('narration','visual_prompt','transition_in','transition_out'):
+        for key in ('narration','visual_prompt','scene_id','entry_state','exit_state','transition_in','transition_out'):
             if not segment[key].strip(): raise ValueError('整片讲稿内容为空，请重试')
+        if len(segment['character_ids']) != len(set(segment['character_ids'])) or not set(segment['character_ids']) <= known_characters:
+            raise ValueError('整片人物引用不完整或不一致，请重试')
         segment['outline_segment_id'] = str(target['outline_segment_id'])
         # Cheap deterministic guard for literal formulas and numerical facts.
         # Meaning/conditions remain prompt constraints, not a claimed AI audit.
@@ -53,7 +71,11 @@ async def build_expression(config, snapshot, targets, http):
         '故事关键行为、人物关系、因果与教学含义必须保留。公式原式和数值可保留在visual_prompt供画面展示，旁白使用自然可朗读的说法。'
         '每段narration是唯一最终朗读正文，不包含镜头指令、音效标记或角色表，不添加音乐、音效。保持目标时长与正常教学语速，不重复或留长空白凑时长。'
         'visual_prompt统一本片人物外观、主体构图、背景、坐标比例和绘制方式；每段给出按句意演示的画面要求及自然的入段、出段承接。'
-        '连续教学场景优先沿用画布与主体，增量显现内容，不在每段重开场、重置坐标轴、重做同一动作或让人物和道具瞬移。'
+        '在characters中为全片每个反复出现的人物只定义一个稳定id和外观；每段通过character_ids引用，不重复设计同一人物。'
+        '每段提供scene_id以及可视化的entry_state和exit_state；相同地点沿用scene_id与上一段结束时的人物、物件和构图状态，地点变化时写清变化并通过transition_out/transition_in自然衔接。'
+        '连续教学场景沿用画布与主体，同一scene_id的后段entry_state必须等于前段exit_state，包含已经出现的标题、标签、坐标、物体和构图。'
+        '后段要移除或改变的内容必须在段内按旁白逐步演示，不能写成边界时已消失或已改变；段首先保持上段末态。'
+        '关系变化用对象绘制、形状插值、移动或高亮承接，不以整层淡入淡出代替动画；不在每段重开场、重置坐标轴、重做同一动作或让人物和道具瞬移。'
         '需要故事人物时，将人物设计为造型统一、可复用的完整角色，只通过整体移动、水平翻转、淡入淡出等简单方式表现动作；不要求关节、步态或手物接触动画。'
         '通过对白、道具、环境变化和自然转场表现人物关系及故事含义。数学图像和实验画面按内容灵活设计，不要求固定动作模板或教师填写坐标。'
         '最终由隔离HTML运行时执行，不输出HTML代码或JavaScript。'
@@ -67,7 +89,7 @@ async def build_expression(config, snapshot, targets, http):
         try: return validate_expression(value,snapshot,targets)
         except ValueError:
             if attempt: raise ValueError('整片讲稿结构或关键公式不完整，请重试') from None
-            messages.append({'role':'user','content':'上一结果不完整。保留所有输入片段id与顺序、非空讲稿和转场，并保留对应片段的公式原式及数值；只修正并返回完整JSON。'})
+            messages.append({'role':'user','content':'上一结果不完整。保留所有输入片段id与顺序、人物注册表及人物id引用，提供每段非空场景与入场/离场状态和自然转场，并保留对应片段的公式原式及数值；只修正并返回完整JSON。'})
 
 
 async def prepare_expression(db, job, version, segments, writer, http):

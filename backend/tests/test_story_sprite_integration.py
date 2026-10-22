@@ -119,7 +119,7 @@ def test_story_request_uses_bounded_animation_references_without_pixel_assets():
     assert all('gsap.' not in doc['content'] and chr(96)*3 not in doc['content'] for doc in references)
     assert (snapshot,targets)==before
     assert request['teacher_request']==snapshot['prompt']
-    assert request['approved_outline']==snapshot['outline'] and request['segments']==targets
+    assert request['approved_outline']==snapshot['outline'] and request['segments']==[{**targets[0],'render_key':'segment-0'}]
     assert request['source_duration']==180. and 'sprite_library' not in request
     assert '整体移动' in request['animation_reference_adapter']
 
@@ -158,7 +158,7 @@ def test_clean_science_route_keeps_its_original_design_references():
 async def test_playback_check_rejects_injected_but_unused_required_characters(monkeypatch):
     from app.videos import direct_render
     class Frame:
-        async def evaluate(self,code):return '<body></body>' if code=='document.body.innerHTML' else False
+        async def evaluate(self,code):return '<body></body>' if code=='window.__eduSceneDom()' else False
     class Page:
         frames=[None,Frame()]
         async def evaluate(self,code):return False if 'filmDiagnostics' in code else None

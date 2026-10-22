@@ -1,4 +1,6 @@
 const payload=JSON.parse(document.getElementById('payload').textContent);
+// Bridge only sub-80ms cue gaps; keep source timings and longer pauses intact.
+const displayCaptions=payload.captions.map((cue,index)=>{const next=payload.captions[index+1];return {...cue,end:next&&next.start-cue.end<=.08?next.start:cue.end};});
 const film=document.getElementById('film'),caption=document.getElementById('caption'),stage=document.getElementById('stage');
 const token=crypto.randomUUID?crypto.randomUUID():String(Math.random());
 let readyResolve,readyReject,id=0,channel='',pending=new Map();
@@ -28,7 +30,7 @@ window.seek=async function(t,inspect=false){
  if(window.filmDiagnostics.length)throw Error(window.filmDiagnostics.join(';'));
  if(!Number.isFinite(t))throw Error('无效动画时间');
  t=Math.max(0,Math.min(payload.duration,t));window.currentSceneTime=t;
- caption.textContent=payload.captions.find(c=>c.start<=t&&t<c.end)?.text??'';
+ caption.textContent=displayCaptions.find(c=>c.start<=t&&t<c.end)?.text??'';
  const request=++id;
  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(request);reject(Error('动画定位超时'));},5000);pending.set(request,{resolve,reject,timer});film.contentWindow.postMessage({type:'direct:seek',token,id:request,source:sourceAt(t),inspect},'*');});
 };
@@ -42,14 +44,16 @@ const bridge='('+function(secret){
    if(window.EduSprites)await window.EduSprites.ready;
    await Promise.all(Array.from(document.images,img=>img.decode()));
   }catch(error){report('动画素材加载失败：'+error.message);return;}
+  function sceneRoots(){const roots=[document];for(let i=0;i<roots.length;i++){for(const el of roots[i].querySelectorAll('*'))if(el.shadowRoot)roots.push(el.shadowRoot);}return roots;}
+  window.__eduSceneDom=()=>{const roots=sceneRoots();return document.body.innerHTML+(roots.length>1?JSON.stringify(roots.slice(1).filter(root=>root.host.getClientRects().length).map(root=>root.innerHTML)):'');};
   addEventListener('message',e=>{
    if(e.source!==parent||e.data?.type!=='direct:seek'||e.data.token!==secret)return;
    try{
     const result=window.renderFrame(e.data.source);
     if(result&&typeof result.then==='function')throw Error('renderFrame必须同步执行');
     document.body.getBoundingClientRect();
-    if(document.getAnimations().some(a=>a.playState==='running'))throw Error('动画必须由绝对时钟驱动');
-    parent.postMessage({type:'direct:done',token:secret,id:e.data.id,dom:e.data.inspect?document.body.innerHTML:null},'*');
+    if(sceneRoots().some(root=>root.getAnimations().some(a=>a.playState==='running')))throw Error('动画必须由绝对时钟驱动');
+    parent.postMessage({type:'direct:done',token:secret,id:e.data.id,dom:e.data.inspect?window.__eduSceneDom():null},'*');
    }catch(error){report(error.message);}
   });
   parent.postMessage({type:'direct:ready',token:secret},'*');

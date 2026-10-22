@@ -51,7 +51,38 @@ def same_pixels(first,second):
     return float(delta.mean())<=.2 and float((delta.max(axis=2)>24).mean())<=.001
 
 
+async def check_continuous_boundaries(page):
+    """Compare the actual visible source frames, independent of audio retiming.
+
+    Captions live outside the scene iframe and deliberately are not compared.
+    This is a technical seam guard, not a semantic/content audit.
+    """
+    frame=page.frames[1] if len(page.frames)>1 else None
+    if frame is None:return
+    spec=await frame.evaluate("""()=>{const el=document.getElementById('edu-film-bundle');
+        if(!el)return null;const bundle=JSON.parse(el.textContent);
+        return bundle.transitions.map((tr,i)=>({mode:tr.mode,from_id:tr.from_id,to_id:tr.to_id}));}""")
+    if not spec or not any(item.get('mode')=='continuous' for item in spec):return
+    # The compiler publishes immutable time ranges in its JSON metadata.
+    timeline=await frame.evaluate("JSON.parse(document.getElementById('edu-film-timeline').textContent)")
+    import numpy as np
+    from PIL import Image
+    async def source_pixels(t):
+        await frame.evaluate('(t)=>window.renderFrame(t)',t)
+        image=Image.open(io.BytesIO(await page.locator('#film').screenshot(type='png',animations='allow'))).convert('RGB')
+        return np.asarray(image.resize((640,360))).astype('int16')
+    for index,item in enumerate(spec):
+        if item.get('mode')!='continuous':continue
+        boundary=timeline[index]['end']
+        before=await source_pixels(boundary-0.000001)
+        after=await source_pixels(boundary)
+        if not same_pixels(before,after):
+            delta=np.abs(before-after)
+            raise ValueError(f"连续场景 {item['from_id']} → {item['to_id']} 边界画面不一致（平均差异{delta.mean():.2f}）；保持背景、坐标、主体和标注末态，变化放在段内，不要用淡化隐藏跳变")
+
+
 async def check_page(page,errors,duration):
+    await check_continuous_boundaries(page)
     # Sparse whole-film checks plus reverse and frozen-clock checks. Encoding
     # subsequently visits every frame, and never calls a content-review model.
     times=sorted({0.,duration, duration*.25,duration*.5,duration*.75,*[min(duration,float(i)) for i in range(0,math.ceil(duration),max(1,math.ceil(duration/90)))]})
@@ -67,7 +98,7 @@ async def check_page(page,errors,duration):
     before=await pixels(page)
     await page.wait_for_timeout(120)
     frame=page.frames[1] if len(page.frames)>1 else None
-    if frame is None or await frame.evaluate('document.body.innerHTML')!=frozen[t]:
+    if frame is None or await frame.evaluate('window.__eduSceneDom()')!=frozen[t]:
         raise ValueError('动画存在未冻结的自主播放状态')
     if not same_pixels(before,await pixels(page)):
         raise ValueError('动画画面存在未冻结的自主播放状态')

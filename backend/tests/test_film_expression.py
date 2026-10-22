@@ -14,8 +14,12 @@ def targets():
 
 def response():
     return {'visual_prompt':'整片使用同一坐标轴、比例和背景，公式y=kx+b且k不等于0。',
+            'characters':[],
             'segments':[{'id':'seg-1','narration':'先看一次函数。它写成y=kx+b，其中k不等于0。',
                          'visual_prompt':'沿用同一坐标图像，展示y=kx+b，k不等于0。',
+                         'scene_id':'coordinate-plane','character_ids':[],
+                         'entry_state':'坐标轴已经出现，尚未绘制直线。',
+                         'exit_state':'直线y=kx+b与坐标轴保持可见。',
                          'transition_in':'从同一坐标轴开始','transition_out':'保留坐标轴供下一段继续'}]}
 
 
@@ -64,6 +68,41 @@ def test_invalid_expression_cannot_replace_approved_source(change):
     with pytest.raises(ValueError): validate_expression(result,source(),targets())
 
 
+@pytest.mark.parametrize('change',['duplicate_character','unknown_character','empty_entry','empty_exit','empty_scene'])
+def test_expression_requires_resolved_character_and_scene_handoffs(change):
+    result=response()
+    character={'id':'korong','appearance':'同一名穿青绿色传统衣袍的男孩，圆脸，黑发。'}
+    if change=='duplicate_character':result['characters']=[character,character.copy()]
+    else:
+        result['characters']=[character]
+        result['segments'][0]['character_ids']=['missing' if change=='unknown_character' else 'korong']
+    if change=='empty_entry':result['segments'][0]['entry_state']=' '
+    if change=='empty_exit':result['segments'][0]['exit_state']=' '
+    if change=='empty_scene':result['segments'][0]['scene_id']=' '
+    with pytest.raises(ValueError):validate_expression(result,source(),targets())
+
+
+def test_expression_carries_same_character_and_scene_state_between_segments():
+    result=response()
+    result['characters']=[{'id':'korong','appearance':'同一名穿青绿色传统衣袍的男孩，圆脸，黑发。'}]
+    result['segments'][0]['scene_id']='family-room'
+    result['segments'][0]['character_ids']=['korong']
+    result['segments'][0]['exit_state']='孔融仍站在桌边，手中托着小梨。'
+    second={**result['segments'][0], 'id':'seg-2',
+            'narration':'孔融把梨递给哥哥。',
+            'visual_prompt':'沿用孔融原有衣着、面容与桌边位置，哥哥仍在桌旁。',
+            'entry_state':result['segments'][0]['exit_state'],
+            'exit_state':'哥哥接过小梨，孔融仍在原处。',
+            'transition_in':'从孔融托梨的姿势自然接续到递梨。',
+            'transition_out':'停留在兄弟二人和小梨同框的画面。'}
+    result['segments'].append(second)
+    targets2=[*targets(),{'id':'seg-2','outline_segment_id':'section-2','title':'分享小梨','narration':'把小梨递给哥哥。'}]
+    accepted=validate_expression(result,source(),targets2)
+    assert accepted['segments'][1]['character_ids']==['korong']
+    assert accepted['segments'][1]['scene_id']==accepted['segments'][0]['scene_id']
+    assert accepted['segments'][1]['entry_state']==accepted['segments'][0]['exit_state']
+
+
 
 
 async def test_expression_request_receives_automatic_story_policy_before_html_generation():
@@ -81,3 +120,14 @@ async def test_expression_request_receives_automatic_story_policy_before_html_ge
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
         await build_expression(cfg,snapshot,targets(),http)
     assert received[0]['style']['defaults']=={'character_stories':'clear_vector_illustration','formulas_graphs_experiments':'clean_graphics'}
+
+
+def test_html_request_carries_canonical_characters_and_boundary_states():
+    from app.videos.direct_pipeline import html_generation_request
+    snapshot=source();snapshot['film_expression']=response()
+    snapshot['film_expression']['characters']=[{'id':'kongrong','appearance':'青衣孩童'}]
+    entry={**response()['segments'][0],'character_ids':['kongrong']}
+    request=html_generation_request(snapshot,[entry],8)
+    assert request['continuity_manifest']['characters']==[{'id':'kongrong','appearance':'青衣孩童'}]
+    assert request['continuity_manifest']['segments'][0]['entry_state']=='坐标轴已经出现，尚未绘制直线。'
+    assert request['continuity_manifest']['segments'][0]['character_ids']==['kongrong']

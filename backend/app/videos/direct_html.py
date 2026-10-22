@@ -45,7 +45,7 @@ def direct_digest():
     root = Path(__file__).parent
     from .sprite_assets import load_bundle
     _,_,sprite_digest=load_bundle()
-    return hashlib.sha256(b''.join((root / name).read_bytes() for name in ('direct_html.py','direct_runtime.js','direct_prompt.txt','direct_render.py','sprite_assets.py','sprite_motion.js'))+sprite_digest.encode()).hexdigest()
+    return hashlib.sha256(b''.join((root / name).read_bytes() for name in ('direct_html.py','direct_runtime.js','direct_render.py','sprite_assets.py','sprite_motion.js','film_module_compiler.py'))+sprite_digest.encode()).hexdigest()
 
 
 def validate_manifest(manifest):
@@ -139,6 +139,9 @@ def join_audio(parts):
 
 
 async def generate_html(config, request, http, *, feedback=''):
+    if request.get('film_module_protocol'):
+        from .film_modules import generate_film
+        return await generate_film(config,request,http,feedback=feedback)
     import httpx
     from .model_stream import animation_response
     from app.outline.model_client import ModelCallError
