@@ -6,6 +6,7 @@ from app.jobs.tasks import run_job
 from test_videos import ready_project
 from direct_fakes import Store,Renderer,external_fakes
 from test_direct_html import HTML
+from app.videos.film_modules import assemble_film,extract_film,patch_film
 
 
 async def prepare(db,client,box,settings,monkeypatch):
@@ -13,7 +14,19 @@ async def prepare(db,client,box,settings,monkeypatch):
     store,renderer=Store(),Renderer();counts=external_fakes(monkeypatch,store,renderer)
     calls=[]
     async def generate(config,request,http,**kwargs):
-        calls.append(request);return HTML
+        calls.append(request)
+        keys=[item['render_key'] for item in request['segments']]
+        if request.get('film_revision_source'):
+            source=request['film_revision_source']
+            selected=request['editable_segment_ids']
+            delta={'segments':[next(item for item in source['segments'] if item['id']==key) | {'html':'<svg><text>局部修改</text></svg>'} for key in selected],
+                   'transitions':[item for item in source['transitions'] if item['from_id'] in selected or item['to_id'] in selected]}
+            bundle=patch_film(source,delta,selected,request['segments'])
+        else:
+            bundle={'shared_html':'','shared_code':'return {};',
+                    'segments':[{'id':key,'html':'<svg><text>原画面</text></svg>','code':'root.querySelector("text").textContent=String(localTime);'} for key in keys],
+                    'transitions':[{'from_id':left,'to_id':right,'duration':.6,'code':'outgoing.style.opacity=String(1-progress);incoming.style.opacity=String(progress);'} for left,right in zip(keys,keys[1:])]}
+        return assemble_film(bundle,request['segments'])
     async def direct(html,manifest,audio,size,*,validate=False):
         if renderer.fail:raise ValueError('测试渲染失败')
         if validate:return {'validated':True}
@@ -30,7 +43,11 @@ async def ready(db,client,box,settings,monkeypatch):
     assert response.status_code==202,response.text
     await run_job(response.json()['job']['id'],settings)
     result=(await client.get(path+'/'+response.json()['id'])).json()
-    assert result['status']=='preview_ready',result
+    if result['status']!='preview_ready':
+        row=await db.get(VideoVersion,UUID(result['id']),populate_existing=True)
+        from app.models import OutlineJob
+        job=await db.get(OutlineJob,row.job_id)
+        pytest.fail(job.error_message or result)
     return project,path,result,store,renderer,counts,calls
 
 
@@ -53,7 +70,7 @@ async def test_production_default_is_whole_html_not_scene_and_export_is_provider
     assert len(calls)==1 and counts=={'speech':1,'scene':0}
 
 
-async def test_visual_revision_rebuilds_whole_film_reuses_audio_voice_revision_reuses_html(db,teacher_client,box,settings,monkeypatch):
+async def test_visual_revision_replaces_selected_modules_reuses_audio_voice_revision_reuses_html(db,teacher_client,box,settings,monkeypatch):
     project,path,result,store,renderer,counts,calls=await ready(db,teacher_client,box,settings,monkeypatch)
     original=await db.get(VideoVersion,UUID(result['id']),populate_existing=True)
     original_audio=original.snapshot['direct_manifest']['hashes']['audio']
@@ -67,7 +84,32 @@ async def test_visual_revision_rebuilds_whole_film_reuses_audio_voice_revision_r
         if mode=='visual':
             assert len(calls)==2 and counts['speech']==1
             assert row.snapshot['direct_manifest']['hashes']['audio']==original_audio
+            assert calls[1]['film_module_protocol']=='film-modules-1'
+            assert calls[1]['editable_segment_ids']==['segment-0']
+            prior_bundle=extract_film(store.files[original.snapshot['direct_source']['key']].decode())
+            revised_bundle=extract_film(store.files[row.snapshot['direct_source']['key']].decode())
+            assert revised_bundle['shared_html']==prior_bundle['shared_html']
+            assert revised_bundle['shared_code']==prior_bundle['shared_code']
+            assert revised_bundle['segments'][0]['html']=='<svg><text>局部修改</text></svg>'
         else:assert len(calls)==2 and counts['speech']==2
+
+
+async def test_voice_revision_fails_closed_when_saved_film_modules_are_corrupt(db,teacher_client,box,settings,monkeypatch):
+    project,path,result,store,renderer,counts,calls=await ready(db,teacher_client,box,settings,monkeypatch)
+    original=await db.get(VideoVersion,UUID(result['id']),populate_existing=True)
+    original.snapshot={**original.snapshot,'direct_source':{
+        **original.snapshot['direct_source'],'module_hash':'0'*64}}
+    await db.commit()
+
+    response=await teacher_client.post(path+'/'+result['id']+'/revisions',json={
+        'revision':1,'idempotency_key':'voice-with-corrupt-film','segment_ids':[result['segments'][0]['id']],
+        'instruction':'只调整这一句的语速','mode':'voice'})
+    assert response.status_code==202,response.text
+    await run_job(response.json()['job']['id'],settings)
+
+    revised=(await teacher_client.get(path+'/'+response.json()['id'])).json()
+    assert revised['status']=='failed',revised
+    assert len(calls)==1 and counts['speech']==1
 
 
 async def test_corrupt_whole_film_is_not_exported(db,teacher_client,box,settings,monkeypatch):
@@ -228,12 +270,14 @@ async def test_checkpoint_repair_keeps_frozen_content_without_injecting_sprite_a
     repaired=calls[1]
     assert 'animation_design_references' not in repaired
     assert 'approved_outline' not in repaired
-    assert repaired['previous_html']==HTML
+    assert repaired['previous_film_bundle']['segments']
+    assert 'film_revision_source' not in repaired
+    assert 'editable_segment_ids' not in repaired
     assert repaired['segments']==calls[0]['segments']
     assert 'sprite_library' not in repaired
     assert repaired['visual_style']==calls[0]['visual_style']
     import json
-    assert len(json.dumps(repaired,ensure_ascii=False)) < len(json.dumps({**calls[0],'previous_html':HTML},ensure_ascii=False))*.8
+    assert 'sprite_library' not in repaired
 
 
 async def test_story_default_reaches_saved_snapshot_without_injecting_pixel_assets(db,teacher_client,box,settings,monkeypatch):
@@ -253,3 +297,80 @@ async def test_story_default_reaches_saved_snapshot_without_injecting_pixel_asse
     assert 'sprite_library' not in calls[0]
     assert '整体移动' in calls[0]['animation_reference_adapter']
     assert len(calls)==1 and counts=={'speech':1,'scene':0}
+
+
+async def test_middle_visual_edit_and_retry_preserve_other_modules_audio_and_scope(db,teacher_client,box,settings,monkeypatch):
+    from copy import deepcopy
+    from uuid import uuid4
+    from app.outline.review import mark_saved
+    from app.videos.render_contract import DirectHtmlRuntimeError
+    project,path,store,renderer,counts,calls=await prepare(db,teacher_client,box,settings,monkeypatch)
+    first=deepcopy(project.outline['segments'][0])
+    project.outline=mark_saved({'segments':[{**deepcopy(first),'id':str(uuid4()),'position':i} for i in range(4)]});await db.commit()
+    value=(await teacher_client.post(path,json={'revision':1,'idempotency_key':'four-scenes'})).json()
+    await run_job(value['job']['id'],settings)
+    initial=(await teacher_client.get(path+'/'+value['id'])).json();assert initial['status']=='preview_ready'
+    original=await db.get(VideoVersion,UUID(initial['id']),populate_existing=True)
+    original_bundle=extract_film(store.files[original.snapshot['direct_source']['key']].decode())
+    original_audio=original.snapshot['direct_manifest']['hashes']['audio']
+    renderer.fail=True
+    edit=(await teacher_client.post(path+'/'+initial['id']+'/revisions',json={'revision':1,'idempotency_key':'middle','segment_ids':[initial['segments'][1]['id']],'instruction':'让中段人物轻轻转身','mode':'visual'})).json()
+    await run_job(edit['job']['id'],settings)
+    assert (await teacher_client.get(path+'/'+edit['id'])).json()['status']=='failed'
+    checkpoint=await db.get(VideoVersion,UUID(edit['id']),populate_existing=True)
+    assert checkpoint.snapshot['direct_source']['revision_applied'] is True
+    assert len(calls)==2 and counts['speech']==4
+    renderer.fail=False;original_render=renderer.direct;attempts=[]
+    async def repair_once(*args,**kwargs):
+        attempts.append(True)
+        if len(attempts)==1:raise DirectHtmlRuntimeError('测试局部代码修复')
+        return await original_render(*args,**kwargs)
+    renderer.direct=repair_once
+    retry=await teacher_client.post(path,json={'revision':1,'idempotency_key':'retry-middle','retry_version_id':edit['id']})
+    assert retry.status_code==202,retry.text
+    await run_job(retry.json()['job']['id'],settings)
+    revised=(await teacher_client.get(path+'/'+retry.json()['id'])).json();assert revised['status']=='preview_ready',revised
+    current=await db.get(VideoVersion,UUID(revised['id']),populate_existing=True)
+    result=extract_film(store.files[current.snapshot['direct_source']['key']].decode())
+    assert len(calls)==3 and calls[-1]['editable_segment_ids']==['segment-1']
+    assert counts['speech']==4 and current.snapshot['direct_manifest']['hashes']['audio']==original_audio
+    assert result['shared_html']==original_bundle['shared_html'] and result['shared_code']==original_bundle['shared_code']
+    for i in (0,2,3):assert result['segments'][i]==original_bundle['segments'][i]
+    assert result['transitions'][2]==original_bundle['transitions'][2]
+    assert result['segments'][1]!=original_bundle['segments'][1]
+    # Another edit starts from the latest modules rather than reapplying a completed instruction.
+    renderer.direct=original_render
+    again=await teacher_client.post(path+'/'+revised['id']+'/revisions',json={'revision':1,'idempotency_key':'last','segment_ids':[revised['segments'][3]['id']],'instruction':'尾段增加平缓移动','mode':'visual'})
+    assert again.status_code==202,again.text
+    await run_job(again.json()['job']['id'],settings)
+    assert (await teacher_client.get(path+'/'+again.json()['id'])).json()['status']=='preview_ready'
+    assert calls[-1]['editable_segment_ids']==['segment-3'] and counts['speech']==4
+
+
+async def test_legacy_html_cannot_silently_regenerate_whole_film_for_local_revision(db,teacher_client,box,settings,monkeypatch):
+    project,path,result,store,renderer,counts,calls=await ready(db,teacher_client,box,settings,monkeypatch)
+    row=await db.get(VideoVersion,UUID(result['id']),populate_existing=True)
+    source={**row.snapshot['direct_source']};source.pop('module_protocol')
+    row.snapshot={**row.snapshot,'direct_source':source};await db.commit()
+    response=await teacher_client.post(path+'/'+result['id']+'/revisions',json={'revision':1,'idempotency_key':'legacy','segment_ids':[result['segments'][0]['id']],'instruction':'局部变亮','mode':'visual'})
+    assert response.status_code==409 and response.json()['detail']['code']=='local_revision_unavailable'
+    assert len(calls)==1
+
+
+async def test_voice_revision_runtime_error_never_invokes_visual_generation(db,teacher_client,box,settings,monkeypatch):
+    from app.videos.render_contract import DirectHtmlRuntimeError
+    project,path,result,store,renderer,counts,calls=await ready(db,teacher_client,box,settings,monkeypatch)
+    original=await db.get(VideoVersion,UUID(result['id']),populate_existing=True)
+    original_source=dict(original.snapshot['direct_source'])
+    async def broken(*args,**kwargs):raise DirectHtmlRuntimeError('配音校时后动画运行失败')
+    renderer.direct=broken
+    response=await teacher_client.post(path+'/'+result['id']+'/revisions',json={
+        'revision':1,'idempotency_key':'voice-error-scope','segment_ids':[result['segments'][0]['id']],
+        'instruction':'只放慢配音','mode':'voice'})
+    assert response.status_code==202,response.text
+    await run_job(response.json()['job']['id'],settings)
+    revised=(await teacher_client.get(path+'/'+response.json()['id'])).json()
+    assert revised['status']=='failed'
+    assert len(calls)==1,'A voice-only revision must never rewrite any visual module'
+    row=await db.get(VideoVersion,UUID(revised['id']),populate_existing=True)
+    assert row.snapshot['direct_source']==original_source

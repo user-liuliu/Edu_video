@@ -1,7 +1,7 @@
 """Bounded immutable resources shared by preparation and export."""
 import asyncio
 import hashlib
-ASSET_LIMITS={'audio':20*1024*1024,'captions':256*1024,'html':4*1024*1024,'raw_html':1_500_000,'whole_audio':140*1024*1024}
+ASSET_LIMITS={'audio':20*1024*1024,'captions':256*1024,'html':4*1024*1024,'raw_html':1_500_000,'film_modules':650_000,'whole_audio':140*1024*1024}
 
 def dimensions(snapshot):
     return {'16:9':(1280,720),'9:16':(720,1280),'1:1':(960,960)}.get(snapshot['form_values'].get('aspect_ratio'),(1280,720))
