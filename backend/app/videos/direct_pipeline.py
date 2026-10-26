@@ -15,6 +15,8 @@ from .direct_html import generate_html as _generate_html,seal_html,align_clock,j
 from .film_modules import FILM_MODULE_PROTOCOL,extract_film
 from .media_assets import read_asset,dimensions,align_audio
 from .timing import estimated_cues,spoken
+from .continuous_speech import PROTOCOL as NARRATION_BLOCK_PROTOCOL,CONTINUITY_INSTRUCTION,plan_blocks,split_narration,UnsplittableNarration
+from .speech import Narration
 from .skill_guidance import animation_guidance,animation_reference_documents,bundle_metadata
 
 
@@ -107,7 +109,7 @@ async def execute_direct_job(db,job,settings):
     async def guard():
         await p.guard(db,job_id,token,job.project_id,job.expected_revision)
         await db.commit()
-    async def publish(name,data,kind,*,segment=None,fp=None):
+    async def publish(name,data,kind,*,segment=None,fp=None,narration_block=None):
         digest=hashlib.sha256(data).hexdigest()
         key=f'videos/{version.owner_id}/{job.project_id}/{version_id}/{token}/{segment.id if segment else "film"}/{name}-{digest}'
         await guard()
@@ -121,6 +123,10 @@ async def execute_direct_job(db,job,settings):
             current=await db.get(VideoVersion,version_id,populate_existing=True)
             checkpoint=current.snapshot.get('direct_assets',{})
             current.snapshot={**current.snapshot,'direct_assets':{**checkpoint,name:{'key':key,'hash':digest}}}
+            if narration_block is not None:
+                identity,record=narration_block
+                current.snapshot={**current.snapshot,'narration_blocks':{
+                    **current.snapshot.get('narration_blocks',{}),identity:{**record,'captions':{'key':key,'hash':digest}}}}
         await db.commit()
         return key,digest
     async def cached(segment,name,fp):
@@ -237,35 +243,121 @@ async def execute_direct_job(db,job,settings):
         if source_created and batch_clock()-batch_started>=300:
             await guard()
             raise ContinueJob('动画已保存，等待继续制作配音')
-        audio_parts=[];captions=[];clock=[];elapsed=0.
-        for index,segment in enumerate(segments):
-            target=source['segments'][index]
-            if target['narration']!=segment.narration:raise ValueError('整片动画讲稿与配音不一致')
+        entries=[]
+        for segment in segments:
             selected=str(segment.id) in job.payload.get('selected_segment_ids',[])
             instruction=job.payload.get('instruction','') if selected and job.payload.get('mode')=='voice' else segment.assets.get('audio_instruction','')
             audio_fp=cache_fingerprint({'narration':segment.narration,'voice':snapshot['voice'],'tts':snapshot['models']['tts'],'protocol':p.NARRATION_PROTOCOL_VERSION,'frame_alignment':1,**({'instruction':instruction} if instruction else {})})
-            audio=await cached(segment,'audio',audio_fp);caption_data=await cached(segment,'captions',audio_fp)
-            await update_job_progress(db,job_id,token,45+int(index/len(segments)*36),f'正在制作配音并校时（{index+1}/{len(segments)}）')
-            audio_created=audio is None or caption_data is None
-            if audio_created:
-                await guard()
-                narration=await p.synthesize_narration(tts,segment.narration,http,speaker=snapshot['voice'],**({'instruction':instruction} if instruction else {}))
-                audio=align_audio(narration.audio);caption_data=json.dumps(narration.captions,ensure_ascii=False).encode()
-                await publish('audio',audio,'audio/wav',segment=segment,fp=audio_fp)
-                await publish('captions',caption_data,'application/json',segment=segment,fp=audio_fp)
-            local_captions=json.loads(caption_data);duration=p.wav_duration(audio)
-            cues=[{**c,'start':c['start']-target['start'],'end':c['end']-target['start']} for c in target['sentences']]
-            local_clock=align_clock(cues,local_captions,target['end']-target['start'],duration)
-            for point in local_clock:
-                value={'t':point['t']+elapsed,'source':point['source']+target['start']}
-                if clock and abs(clock[-1]['t']-value['t'])<1e-8:continue
-                clock.append(value)
-            captions.extend({**c,'start':c['start']+elapsed,'end':c['end']+elapsed} for c in local_captions)
-            audio_parts.append(audio);segment.start=elapsed;elapsed+=duration;segment.end=elapsed
-            segment.assets={**segment.assets,'audio_instruction':instruction};await db.commit()
-            if audio_created and batch_clock()-batch_started>=300:
-                await guard()
-                raise ContinueJob(f'配音已完成 {index+1}/{len(segments)} 段，等待继续校时与播放检查')
+            reusable=all(segment.assets.get(name) and segment.assets.get('fingerprints',{}).get(name)==audio_fp for name in ('audio','captions'))
+            entries.append({'instruction':instruction,'fingerprint':audio_fp,'reusable':reusable})
+        texts=[s.narration for s in segments]
+        if any(t['narration']!=s.narration for t,s in zip(source['segments'],segments)):
+            raise ValueError('整片动画讲稿与配音不一致')
+        def matching_block(record):
+            try:
+                positions=record['positions']
+                return (record.get('protocol')==NARRATION_BLOCK_PROTOCOL and 2<=len(positions)<=3
+                        and all(type(i) is int and 0<=i<len(segments) for i in positions)
+                        and positions==list(range(positions[0],positions[0]+len(positions)))
+                        and record['fingerprints']==[entries[i]['fingerprint'] for i in positions])
+            except (KeyError,ValueError,TypeError):return False
+
+        checkpoints=version.snapshot.get('narration_blocks',{})
+        force_single={i for record in checkpoints.values() if matching_block(record) and record.get('single_required') for i in record['positions']}
+        topics=[s.title.replace(':','：').partition('：')[0].strip() for s in segments]
+        blocks=plan_blocks(texts,[e['instruction'] for e in entries],[e['reusable'] for e in entries],
+            enabled=tts.base_url!='system://offline',force_single=force_single,topics=topics)
+
+        async def remember_block(identity,record):
+            await guard()
+            current=await db.get(VideoVersion,version_id,populate_existing=True)
+            current.snapshot={**current.snapshot,'narration_blocks':{**current.snapshot.get('narration_blocks',{}),identity:record}}
+            await db.commit()
+
+        async def restore_part(index,loaded):
+            # Stable positions survive retry versions, whose segment UUIDs change.
+            current=await db.get(VideoVersion,version_id,populate_existing=True)
+            for identity,record in current.snapshot.get('narration_blocks',{}).items():
+                try:
+                    positions=record['positions']
+                    if not matching_block(record) or record.get('single_required') or index not in positions:continue
+                    if identity not in loaded:
+                        audio_ref,caption_ref=record['audio'],record['captions']
+                        audio=await read_asset(storage,audio_ref['key'],audio_ref['hash'],'audio')
+                        subtitle=json.loads(await read_asset(storage,caption_ref['key'],caption_ref['hash'],'captions'))
+                        loaded[identity]=split_narration(Narration(audio,subtitle),[texts[i] for i in positions])
+                    return loaded[identity][positions.index(index)]
+                except (KeyError,ValueError,TypeError,OSError):continue
+            return None
+
+        async def prepare_audio(indices):
+            # Only hold one bounded block of PCM in memory; cached clips are hard boundaries.
+            pairs=[];loaded={}
+            for index in indices:
+                segment=segments[index];fp=entries[index]['fingerprint']
+                audio=await cached(segment,'audio',fp);subtitle=await cached(segment,'captions',fp)
+                pairs.append((audio,subtitle))
+            parts=None
+            if len(indices)>1 and not any(a is not None and c is not None for a,c in pairs):
+                restored=[await restore_part(i,loaded) for i in indices]
+                if all(restored):parts=restored
+                elif not any(restored):
+                    record={'protocol':NARRATION_BLOCK_PROTOCOL,'positions':list(indices),'fingerprints':[entries[i]['fingerprint'] for i in indices]}
+                    identity=cache_fingerprint(record)
+                    saved=(await db.get(VideoVersion,version_id,populate_existing=True)).snapshot.get('narration_blocks',{}).get(identity,{})
+                    if not saved.get('single_required'):
+                        await guard()
+                        instruction=entries[indices[0]]['instruction']
+                        guidance=(instruction+'。' if instruction else '')+CONTINUITY_INSTRUCTION
+                        await update_job_progress(db,job_id,token,45+int(indices[0]/len(segments)*36),f'正在连续配音（{indices[0]+1}–{indices[-1]+1}/{len(segments)}）')
+                        narration=await p.synthesize_narration(tts,''.join(texts[i] for i in indices),http,speaker=snapshot['voice'],instruction=guidance)
+                        try:parts=split_narration(narration,[texts[i] for i in indices])
+                        except UnsplittableNarration:
+                            await remember_block(identity,{**record,'single_required':True})
+                        else:
+                            # Seal the full provider result before distributing paragraph assets.
+                            key,digest=await publish('narration_audio_'+identity,narration.audio,'audio/wav')
+                            # The final group asset and complete recovery index share one DB commit.
+                            await publish('narration_captions_'+identity,json.dumps(narration.captions,ensure_ascii=False).encode(),
+                                'application/json',narration_block=(identity,{**record,'audio':{'key':key,'hash':digest}}))
+            if parts:
+                for index,part in zip(indices,parts):
+                    fp=entries[index]['fingerprint'];segment=segments[index]
+                    await publish('audio',part.audio,'audio/wav',segment=segment,fp=fp)
+                    await publish('captions',json.dumps(part.captions,ensure_ascii=False).encode(),'application/json',segment=segment,fp=fp)
+                # Yield only after the whole successful block has been checkpointed.
+                for index,part in zip(indices,parts):yield index,part.audio,part.captions,True
+                return
+            for index,(audio,subtitle) in zip(indices,pairs):
+                created=audio is None or subtitle is None
+                if created:
+                    await guard()
+                    part=await restore_part(index,loaded)
+                    if part is None:
+                        instruction=entries[index]['instruction']
+                        await update_job_progress(db,job_id,token,45+int(index/len(segments)*36),f'正在制作配音并校时（{index+1}/{len(segments)}）')
+                        part=await p.synthesize_narration(tts,texts[index],http,speaker=snapshot['voice'],**({'instruction':instruction} if instruction else {}))
+                    audio=align_audio(part.audio);subtitle=json.dumps(part.captions,ensure_ascii=False).encode()
+                    await publish('audio',audio,'audio/wav',segment=segments[index],fp=entries[index]['fingerprint'])
+                    await publish('captions',subtitle,'application/json',segment=segments[index],fp=entries[index]['fingerprint'])
+                yield index,audio,json.loads(subtitle),created
+
+        audio_parts=[];captions=[];clock=[];elapsed=0.
+        for block in blocks:
+            async for index,audio,local_captions,audio_created in prepare_audio(block):
+                segment=segments[index];target=source['segments'][index];duration=p.wav_duration(audio)
+                cues=[{**c,'start':c['start']-target['start'],'end':c['end']-target['start']} for c in target['sentences']]
+                local_clock=align_clock(cues,local_captions,target['end']-target['start'],duration)
+                for point in local_clock:
+                    value={'t':point['t']+elapsed,'source':point['source']+target['start']}
+                    if clock and abs(clock[-1]['t']-value['t'])<1e-8:continue
+                    clock.append(value)
+                captions.extend({**c,'start':c['start']+elapsed,'end':c['end']+elapsed} for c in local_captions)
+                audio_parts.append(audio);segment.start=elapsed;elapsed+=duration;segment.end=elapsed
+                segment.assets={**segment.assets,'audio_instruction':entries[index]['instruction']};await db.commit()
+                if audio_created and batch_clock()-batch_started>=300:
+                    await guard()
+                    raise ContinueJob(f'配音已完成 {index+1}/{len(segments)} 段，等待继续校时与播放检查')
         if elapsed>7200:raise ValueError('视频总时长超过限制')
         manifest={'duration':elapsed,'source_duration':source['duration'],'clock':clock,'captions':captions}
         audio=join_audio(audio_parts)
