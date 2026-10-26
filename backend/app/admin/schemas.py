@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.auth.schemas import PASSWORD_MAX, PASSWORD_MIN, UserOut
+from app.auth.schemas import PASSWORD_MAX, PASSWORD_MIN, UserSummary
 from app.models import UserRole
 
 from .user_actions import UserAction
@@ -20,8 +20,10 @@ class SetRoleRequest(BaseModel):
     role: UserRole
 
 
-class AdminUserOut(UserOut):
+class AdminUserOut(UserSummary):
     video_count: int = 0
+    ppt_count: int = 0
+    project_count: int = 0
 
 
 class UserListOut(BaseModel):

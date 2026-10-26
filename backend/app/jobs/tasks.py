@@ -6,12 +6,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, update, delete, func, text
 
 from app.config import get_settings
+from app.credits.service import settle_video, release_video
 from app.db import create_engine, create_sessionmaker
 from app.models import OutlineJob, Material, MaterialChunk, User, VideoProject, VideoVersion
 from app.materials.storage import MaterialStorage
 from .celery_app import celery_app
 from .dispatcher import dispatch_pending, cleanup_objects
 from .service import count_active_generation_jobs, lock_generation_capacity
+from .continuation import ContinueJob, requeue_continuation
 
 
 @celery_app.task(name='edu.dispatch')
@@ -84,7 +86,13 @@ async def run_job(job_id, settings=None):
             await db.execute(text('SELECT pg_advisory_xact_lock(73016422)'))
             job = await db.scalar(select(OutlineJob).where(OutlineJob.id==UUID(str(job_id))).with_for_update())
             now = datetime.now(UTC)
-            if not job or job.status in ('succeeded','failed') or (job.lease_until and job.lease_until>now): return
+            if not job: return
+            if job.status in ('failed','cancelled'):
+                if job.kind=='video':
+                    await release_video(db,job)
+                    await db.commit()
+                return
+            if job.status=='succeeded' or (job.lease_until and job.lease_until>now): return
             if job.kind == 'generate':
                 from app.materials.pipeline import dependency_state
                 ready, dependency_error, completed, total = await dependency_state(db, job)
@@ -122,6 +130,7 @@ async def run_job(job_id, settings=None):
                     await db.execute(update(VideoProject).where(VideoProject.id==job.project_id,VideoProject.owner_id==job.owner_id,VideoProject.revision==job.expected_revision).values(status='video_failed'))
                 else:
                     await db.execute(update(VideoProject).where(VideoProject.id==job.project_id,VideoProject.owner_id==job.owner_id,VideoProject.revision==job.expected_revision).values(status='failed'))
+                if job.kind=='video': await release_video(db,job)
                 await db.commit(); return
             token=uuid4()
             job.lease_token,job.lease_until=token,now+timedelta(seconds=90)
@@ -147,7 +156,13 @@ async def run_job(job_id, settings=None):
                     await execute_outline_job(db,job,settings)
                 changed=await db.execute(update(OutlineJob).where(OutlineJob.id==job.id,OutlineJob.lease_token==token,OutlineJob.status=='running').values(status='succeeded',stage='处理完成',progress=100,lease_until=None,error_message=None,updated_at=func.clock_timestamp()))
                 if not changed.rowcount: raise ValueError('任务已由其他进程接管或终止')
+                if kind=='video': await settle_video(db,job)
                 await db.commit()
+            except ContinueJob as continuation:
+                await db.rollback()
+                # Existing outbox dispatcher resumes this same job. Do not
+                # settle/release its hold or publish a terminal UI event.
+                await requeue_continuation(db,UUID(str(job_id)),token,continuation.stage)
             except Exception as exc:
                 await db.rollback()
                 # Only deliberate Chinese validation errors are safe for users; never expose provider bodies.
@@ -159,6 +174,8 @@ async def run_job(job_id, settings=None):
                     elif kind=='video_export':
                         await db.execute(update(VideoProject).where(VideoProject.id==project_id,VideoProject.owner_id==owner_id,VideoProject.revision==expected_revision).values(status='preview_ready'))
                     elif kind=='video':
+                        failed_job = await db.get(OutlineJob, UUID(str(job_id)), populate_existing=True)
+                        await release_video(db,failed_job)
                         await db.execute(update(VideoVersion).where(VideoVersion.job_id==UUID(str(job_id))).values(status='failed'))
                         await db.execute(update(VideoProject).where(VideoProject.id==project_id,VideoProject.owner_id==owner_id,VideoProject.revision==expected_revision).values(status='video_failed'))
                     else:

@@ -3,6 +3,7 @@ import re
 from uuid import uuid4
 from sqlalchemy import func, select
 from app.errors import api_error
+from app.credits.service import reserve_video
 from app.jobs.service import create_job, require_generation_capacity, require_idle, JobView
 from app.models import OutlineJob, VideoVersion, VideoSegment
 from app.outline.review import needs_save, review_state
@@ -96,7 +97,10 @@ async def start_video(db, user, project_id, body, box, *, source_version_id=None
         snapshot.pop('direct_manifest',None)
         snapshot.pop('direct_assets',None)
         if source_version_id and body.mode=='visual':
-            snapshot.pop('direct_source',None)
+            from .film_modules import FILM_MODULE_PROTOCOL
+            if snapshot.get('direct_source',{}).get('module_protocol')!=FILM_MODULE_PROTOCOL:
+                raise api_error(409,'local_revision_unavailable','此版本尚不支持局部修改，请先重新生成完整视频')
+            snapshot['direct_source']={key:value for key,value in snapshot['direct_source'].items() if key!='revision_applied'}
     number = int(await db.scalar(select(func.max(VideoVersion.number)).where(VideoVersion.project_id==project.id)) or 0)+1
     version_id=uuid4()
     payload={'version_id':str(version_id),'request':body.model_dump(mode='json'),'revision_source':str(source_version_id) if source_version_id else None}
@@ -152,6 +156,7 @@ async def start_video(db, user, project_id, body, box, *, source_version_id=None
             for narration in narration_chunks(section['narration']):
                 db.add(VideoSegment(version_id=version.id,outline_segment_id=section['id'],position=position,title=section['title'],narration=narration))
                 position+=1
+    await reserve_video(db, job, project.title)
     project.status='video_generating'
     await db.commit(); await db.refresh(version)
     return version

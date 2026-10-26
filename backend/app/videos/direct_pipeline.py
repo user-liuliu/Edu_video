@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+from time import monotonic as batch_clock
 from sqlalchemy import select
 import httpx
 from app.models import VideoVersion,VideoSegment
@@ -10,10 +11,18 @@ from app.model_configs import resolve
 from app.purposes import Purpose
 from app.jobs.service import update_job_progress
 from .cache import cache_fingerprint
-from .direct_html import generate_html,seal_html,align_clock,join_audio,direct_digest,DIRECT_PROTOCOL
+from .direct_html import generate_html as _generate_html,seal_html,align_clock,join_audio,direct_digest,DIRECT_PROTOCOL
+from .film_modules import FILM_MODULE_PROTOCOL,extract_film
 from .media_assets import read_asset,dimensions,align_audio
 from .timing import estimated_cues,spoken
 from .skill_guidance import animation_guidance,animation_reference_documents,bundle_metadata
+
+
+async def generate_html(config, request, http, **options):
+    if any(key in options for key in ('checkpoint','save_checkpoint','max_modules')):
+        from .film_modules import generate_film
+        return await generate_film(config,request,http,**options)
+    return await _generate_html(config,request,http,**options)
 
 
 def html_generation_request(snapshot,targets,duration):
@@ -25,10 +34,29 @@ def html_generation_request(snapshot,targets,duration):
         'teacher_visual_instruction':[target.get('teacher_visual_instruction','') for target in targets],
         'narration':' '.join(target['narration'] for target in targets),
     },snapshot['style'])
+    targets=[{**target,'render_key':target.get('render_key',f'segment-{index}')} for index,target in enumerate(targets)]
     request={'source_duration':duration,'title':snapshot['title'],'teacher_request':snapshot['prompt'],
             'approved_outline':snapshot['outline'],'whole_film_visual_prompt':snapshot['film_expression']['visual_prompt'],
             'segments':targets,'visual_style':snapshot['style'],'animation_design_references':guidance['documents'],
-            'animation_reference_adapter':guidance['runtime_adapter']}
+            'animation_reference_adapter':guidance['runtime_adapter'],'film_module_protocol':FILM_MODULE_PROTOCOL}
+    expression=snapshot.get('film_expression',{})
+    request['continuity_manifest']={
+        'characters':expression.get('characters',[]),
+        'segments':[{
+            'id':target.get('id',target['render_key']),
+            'scene_id':target.get('scene_id',''),
+            'character_ids':target.get('character_ids',[]),
+            'entry_state':target.get('entry_state',''),
+            'exit_state':target.get('exit_state',''),
+            'transition_in':target.get('transition_in',''),
+            'transition_out':target.get('transition_out',''),
+        } for target in targets],
+    }
+    request['connection_contracts']=[{
+        'from_id':left['render_key'],'to_id':right['render_key'],
+        'mode':'continuous' if left.get('scene_id') and left.get('scene_id')==right.get('scene_id') else 'scene_change',
+        'boundary_state':left.get('exit_state',''),
+    } for left,right in zip(targets,targets[1:])]
     if guidance['story_characters']:
         request['animation_design_references']=animation_reference_documents(guidance)
     return request
@@ -36,9 +64,22 @@ def html_generation_request(snapshot,targets,duration):
 
 def html_repair_request(request, html):
     """Keep frozen film constraints, omit duplicated creative reference documents."""
+    if request.get('film_module_protocol'):
+        bundle=extract_film(html)
+        kept=('source_duration','title','teacher_request','whole_film_visual_prompt','segments',
+              'continuity_manifest','connection_contracts','visual_style','film_module_protocol','animation_reference_adapter')
+        frozen={key:request[key] for key in kept if key in request}
+        if request.get('film_revision_source'):
+            # Content edits remain confined to the selected modules and their
+            # adjacent transitions even when a later runtime repair is needed.
+            keys=request.get('editable_segment_ids') or [item['id'] for item in bundle['segments']]
+            return {**frozen,'film_revision_source':bundle,'editable_segment_ids':keys,
+                    'instruction':request.get('instruction','')+'；仅修复运行错误，保留共享素材、讲稿和时间轴，不得修改未选择片段。'}
+        return {**frozen,'previous_film_bundle':bundle,
+                'instruction':request.get('instruction','')+'；仅修复运行错误，保留已生成的影片设计、讲稿和时间轴；必要时可修正共享画面代码。'}
     from .sprite_assets import model_source
     keys=('source_duration','title','teacher_request','whole_film_visual_prompt',
-          'segments','visual_style','animation_reference_adapter','sprite_library')
+          'segments','continuity_manifest','visual_style','animation_reference_adapter','sprite_library')
     return {**{key:request[key] for key in keys if key in request},
             'previous_html':model_source(html),
             'repair_contract':'仅修复现有HTML的技术错误，保留画面设计、全部教学内容、逐句讲稿和时间轴、教师修改要求及素材API；不要重新创作影片。返回完整HTML。'}
@@ -47,6 +88,8 @@ def html_repair_request(request, html):
 async def execute_direct_job(db,job,settings):
     from . import pipeline as p
     from .expression import prepare_expression
+    from app.jobs.continuation import ContinueJob
+    batch_started=batch_clock()
     version=await db.scalar(select(VideoVersion).where(VideoVersion.job_id==job.id))
     version_id=version.id;job_id=job.id;token=job.lease_token
     box=SecretBox(settings.master_key)
@@ -85,34 +128,115 @@ async def execute_direct_job(db,job,settings):
         try:return await read_asset(storage,segment.assets[name],segment.assets['hashes'][name],name)
         except (KeyError,ValueError,OSError):return None
     async with httpx.AsyncClient(follow_redirects=False) as http:
+        expression_created=bool(version.snapshot.get('expression_protocol') and version.snapshot.get('film_expression') is None)
         snapshot=await prepare_expression(db,job,version,segments,writer,http)
+        if expression_created and batch_clock()-batch_started>=300:
+            await guard()
+            raise ContinueJob('整片讲稿已保存，等待继续生成动画')
         size=dimensions(snapshot);runtime=direct_digest();renderer=p.RendererClient(settings,http)
         source=snapshot.get('direct_source')
-        raw=None
+        raw=None;module_bundle=None;targets=None
+        source_created=False
         if source:
-            try:raw=(await read_asset(storage,source['key'],source['hash'],'raw_html')).decode()
-            except (KeyError,ValueError,OSError,UnicodeError):source=None
-        if source and (source.get('runtime')!=runtime or len(source['segments'])!=len(segments)):
-            raise ValueError('整片动画初稿版本不一致，请重新生成完整预览')
+            try:
+                raw=(await read_asset(storage,source['key'],source['hash'],'raw_html')).decode()
+                if source.get('module_protocol')==FILM_MODULE_PROTOCOL:
+                    module_data=await read_asset(storage,source['module_key'],source['module_hash'],'film_modules')
+                    module_bundle=json.loads(module_data)
+                    if extract_film(raw)!=module_bundle:raise ValueError('动画模块资源与预览不一致')
+                else:
+                    source=None;raw=None
+            except (KeyError,ValueError,OSError,UnicodeError,TypeError):
+                source=None;raw=None;module_bundle=None
+        if source and source.get('runtime')!=runtime:
+            raise ValueError('动画模块版本已更新，请重新生成完整预览')
+        if source and len(source['segments'])!=len(segments):
+            raise ValueError('整片动画模块与教学片段映射不一致，请重新生成完整预览')
+
+        selected_ids=set(job.payload.get('selected_segment_ids',[]))
+        if selected_ids and job.payload.get('mode')=='visual' and source is None:
+            raise ValueError('来源动画模块不可用，请重新生成完整预览后修改')
+        if selected_ids and job.payload.get('mode')=='voice' and source is None:
+            raise ValueError('来源动画模块不可用，无法安全保留原画面；请重新生成完整预览后修改')
+        visual_edit=bool(source and module_bundle and selected_ids and job.payload.get('mode')=='visual' and not source.get('revision_applied'))
+        if source and visual_edit:
+            targets=[]
+            for index,(segment,prior) in enumerate(zip(segments,source['segments'])):
+                if prior.get('narration')!=segment.narration:
+                    raise ValueError('局部画面修改不能改变已配音讲稿')
+                entry=next(item for item in snapshot['film_expression']['segments'] if item['id']==str(segment.id))
+                instruction=job.payload.get('instruction','') if str(segment.id) in selected_ids else segment.assets.get('visual_instruction','')
+                target={**prior,**entry,'id':str(segment.id),'position':segment.position,
+                        'render_key':f'segment-{index}','teacher_visual_instruction':instruction}
+                targets.append(target)
+                segment.assets={**segment.assets,'visual_instruction':instruction}
+            request=html_generation_request(snapshot,targets,source['duration'])
+            request.update(film_revision_source=module_bundle,
+                           editable_segment_ids=[targets[index]['render_key'] for index in range(len(targets))
+                                                 if str(segments[index].id) in selected_ids],
+                           instruction=job.payload.get('instruction',''))
+            await update_job_progress(db,job_id,token,12,'正在修改所选画面并衔接相邻片段')
+            await guard();raw=await generate_html(writer,request,http)
+            source_created=True
+            module_bundle=extract_film(raw)
+            module_key,module_hash=await publish('film_modules',json.dumps(module_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
+            key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
+            source={**source,'key':key,'hash':digest,'module_key':module_key,'module_hash':module_hash,
+                    'module_protocol':FILM_MODULE_PROTOCOL,'runtime':runtime,'segments':targets,'revision_applied':True}
+            version=await db.get(VideoVersion,version_id,populate_existing=True)
+            version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+        elif source:
+            targets=source['segments']
+
         if source is None:
             offset=0.;targets=[]
-            for segment in segments:
+            for index,segment in enumerate(segments):
                 parent=next(s for s in snapshot['outline']['segments'] if str(s['id'])==str(segment.outline_segment_id))
                 duration=max(.5,min(110.,parent.get('estimated_duration_seconds',max(1,len(spoken(parent['narration']))/4))*len(spoken(segment.narration))/max(1,len(spoken(parent['narration'])))))
                 cues=estimated_cues(segment.narration,duration)
                 entry=next(s for s in snapshot['film_expression']['segments'] if s['id']==str(segment.id))
-                local=job.payload.get('instruction','') if str(segment.id) in job.payload.get('selected_segment_ids',[]) and job.payload.get('mode')!='voice' else segment.assets.get('visual_instruction','')
-                targets.append({**entry,'position':segment.position,'start':offset,'end':offset+duration,
+                local=job.payload.get('instruction','') if str(segment.id) in selected_ids and job.payload.get('mode')!='voice' else segment.assets.get('visual_instruction','')
+                targets.append({**entry,'position':segment.position,'render_key':f'segment-{index}','start':offset,'end':offset+duration,
                     'sentences':[{**c,'start':offset+c['start'],'end':offset+c['end']} for c in cues],'teacher_visual_instruction':local})
                 segment.assets={**segment.assets,'visual_instruction':local};offset+=duration
             if offset>7200:raise ValueError('视频总时长超过限制')
             request=html_generation_request(snapshot,targets,offset)
-            await update_job_progress(db,job_id,token,12,'正在生成整片HTML动画与自然转场')
-            await guard();raw=await generate_html(writer,request,http)
+            from .film_checkpoints import FilmCheckpoints,generation_fingerprint,BATCH_MODULES
+            from .film_modules import FilmBatchPending
+            from app.jobs.continuation import ContinueJob
+            async def persist_checkpoint(index):
+                # Hold the lease/project locks through the index commit.
+                await p.guard(db,job_id,token,job.project_id,job.expected_revision)
+                current=await db.get(VideoVersion,version_id,populate_existing=True)
+                current.snapshot={**current.snapshot,'animation_checkpoint':index}
+                await db.commit()
+                if index:
+                    completed=len(index['parts']);total=index['total']
+                    await update_job_progress(db,job_id,token,12+int(30*completed/total),
+                        f'动画已完成 {completed}/{total} 段'+(f'，继续第 {completed+1} 段' if completed<total else ''))
+            checkpoints=FilmCheckpoints(storage,request,
+                generation_fingerprint(request,snapshot['models']['writer'],runtime),
+                snapshot.get('animation_checkpoint'),publish,persist_checkpoint)
+            prefix=await checkpoints.restore()
+            await update_job_progress(db,job_id,token,12,'正在恢复已保存动画片段' if prefix else '正在生成整片HTML动画与自然转场')
+            await guard()
+            try:
+                raw=await generate_html(writer,request,http,checkpoint=prefix,
+                    save_checkpoint=checkpoints.save,max_modules=BATCH_MODULES)
+                source_created=True
+            except FilmBatchPending as pending:
+                await guard()
+                raise ContinueJob(f'动画已完成 {pending.completed}/{pending.total} 段，等待继续第 {pending.completed+1} 段') from None
+            module_bundle=extract_film(raw)
+            module_key,module_hash=await publish('film_modules',json.dumps(module_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
             key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
-            source={'key':key,'hash':digest,'runtime':runtime,'duration':offset,'segments':targets}
+            source={'key':key,'hash':digest,'runtime':runtime,'duration':offset,'segments':targets,
+                    'module_key':module_key,'module_hash':module_hash,'module_protocol':FILM_MODULE_PROTOCOL}
             version=await db.get(VideoVersion,version_id,populate_existing=True)
             version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+        if source_created and batch_clock()-batch_started>=300:
+            await guard()
+            raise ContinueJob('动画已保存，等待继续制作配音')
         audio_parts=[];captions=[];clock=[];elapsed=0.
         for index,segment in enumerate(segments):
             target=source['segments'][index]
@@ -122,7 +246,8 @@ async def execute_direct_job(db,job,settings):
             audio_fp=cache_fingerprint({'narration':segment.narration,'voice':snapshot['voice'],'tts':snapshot['models']['tts'],'protocol':p.NARRATION_PROTOCOL_VERSION,'frame_alignment':1,**({'instruction':instruction} if instruction else {})})
             audio=await cached(segment,'audio',audio_fp);caption_data=await cached(segment,'captions',audio_fp)
             await update_job_progress(db,job_id,token,45+int(index/len(segments)*36),f'正在制作配音并校时（{index+1}/{len(segments)}）')
-            if audio is None or caption_data is None:
+            audio_created=audio is None or caption_data is None
+            if audio_created:
                 await guard()
                 narration=await p.synthesize_narration(tts,segment.narration,http,speaker=snapshot['voice'],**({'instruction':instruction} if instruction else {}))
                 audio=align_audio(narration.audio);caption_data=json.dumps(narration.captions,ensure_ascii=False).encode()
@@ -138,27 +263,51 @@ async def execute_direct_job(db,job,settings):
             captions.extend({**c,'start':c['start']+elapsed,'end':c['end']+elapsed} for c in local_captions)
             audio_parts.append(audio);segment.start=elapsed;elapsed+=duration;segment.end=elapsed
             segment.assets={**segment.assets,'audio_instruction':instruction};await db.commit()
+            if audio_created and batch_clock()-batch_started>=300:
+                await guard()
+                raise ContinueJob(f'配音已完成 {index+1}/{len(segments)} 段，等待继续校时与播放检查')
         if elapsed>7200:raise ValueError('视频总时长超过限制')
         manifest={'duration':elapsed,'source_duration':source['duration'],'clock':clock,'captions':captions}
         audio=join_audio(audio_parts)
         await update_job_progress(db,job_id,token,87,'正在检查整片HTML播放与时间轴')
         from .render_contract import DirectHtmlRuntimeError
-        for attempt in range(min(2,snapshot['params']['max_retries'])+1):
+        repair_limit=min(2,snapshot['params']['max_retries'])
+        repairs=source.get('repair_attempts',0) if source.get('repair_job_id')==str(job_id) else 0
+        while True:
             try:
                 await guard();await renderer.direct(raw,manifest,audio,size,validate=True)
                 break
             except DirectHtmlRuntimeError as error:
-                if attempt>=min(2,snapshot['params']['max_retries']):raise
+                if job.payload.get('mode')=='voice':
+                    raise DirectHtmlRuntimeError('配音校时后原画面运行检查未通过，已保留原画面；请先修改对应画面或重新生成完整预览') from error
+                if repairs>=repair_limit:raise
                 # Repair executable code only. Preserve the frozen script, cues
                 # and accepted audio; this is not a video content review.
                 await update_job_progress(db,job_id,token,88,'正在修复动画播放代码（保留讲稿与配音）')
                 if 'request' not in locals():
                     request=html_generation_request(snapshot,source['segments'],source['duration'])
-                await guard();raw=await generate_html(writer,html_repair_request(request,raw),http,feedback=str(error))
-                key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
-                source={**source,'key':key,'hash':digest}
+                    if selected_ids and job.payload.get('mode')=='visual':
+                        editable=[target['render_key'] for target,segment in zip(source['segments'],segments)
+                                  if str(segment.id) in selected_ids]
+                        request['editable_segment_ids']=editable
+                        request['instruction']=job.payload.get('instruction','')
+                        if source.get('revision_applied'):
+                            request['film_revision_source']=module_bundle
+                await p.guard(db,job_id,token,job.project_id,job.expected_revision)
+                repairs+=1
+                source={**source,'repair_job_id':str(job_id),'repair_attempts':repairs}
                 version=await db.get(VideoVersion,version_id,populate_existing=True)
                 version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+                raw=await generate_html(writer,html_repair_request(request,raw),http,feedback=str(error))
+                key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
+                repaired_bundle=extract_film(raw)
+                module_key,module_hash=await publish('film_modules',json.dumps(repaired_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
+                source={**source,'key':key,'hash':digest,'module_key':module_key,'module_hash':module_hash}
+                version=await db.get(VideoVersion,version_id,populate_existing=True)
+                version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+                if batch_clock()-batch_started>=300:
+                    await guard()
+                    raise ContinueJob('动画修复结果已保存，等待继续播放检查')
         html=seal_html(raw,manifest,size).encode()
         html_key,html_hash=await publish('html',html,'text/html; charset=utf-8')
         audio_key,audio_hash=await publish('whole_audio',audio,'audio/wav')

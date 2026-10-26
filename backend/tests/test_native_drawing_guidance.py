@@ -13,7 +13,7 @@ def request_for(prompt, subject='语文', revision=''):
     snapshot = {'title': '教学动画', 'prompt': prompt, 'form_values': {'subject': subject},
                 'style': resolve_style({'subject': subject}), 'outline': {},
                 'film_expression': {'visual_prompt': '连续演示'}}
-    targets = [{'narration': '观察并解释这个过程。', 'teacher_visual_instruction': revision}]
+    targets = [{'id':'test-scene','render_key':'segment-0','start':0.,'end':10.,'narration': '观察并解释这个过程。', 'teacher_visual_instruction': revision}]
     return html_generation_request(snapshot, targets, 10.)
 
 
@@ -50,7 +50,9 @@ def test_story_generation_uses_simple_reusable_character_guidance(prompt):
 def test_explicit_non_pixel_revision_uses_native_rules_including_code_repair():
     request = request_for('用像素风讲述人物故事', revision='改为水彩风格，不用像素风')
     assert 'sprite_library' not in request
-    repaired = html_repair_request(request, '<html><script>window.renderFrame=t=>{};</script></html>')
+    from app.videos.film_modules import assemble_film
+    bundle={'shared_html':'','shared_code':'return {};','segments':[{'id':'segment-0','html':'<svg></svg>','code':''}],'transitions':[]}
+    repaired = html_repair_request(request, assemble_film(bundle,request['segments']))
     assert '人物作为整体' in repaired['animation_reference_adapter']
 
 
@@ -83,14 +85,15 @@ def test_prompt_changes_update_provenance_without_invalidating_existing_playback
 async def test_simple_character_rules_reach_actual_model_payload_without_extra_calls(prompt,pixel):
     from app.videos.direct_html import generate_html
     sent = []
-    html = '<!doctype html><html><body><script>window.renderFrame=t=>{};</script></body></html>'
+    bundle={'shared_html':'','shared_code':'return {};','segments':[{'id':'segment-0','html':'<svg></svg>','code':''}],'transitions':[]}
     def respond(request):
         sent.append(json.loads(request.content))
-        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps({'html': html})}}]})
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(bundle)}}]})
     config = type('Config', (), {'base_url': 'https://example.invalid/v1', 'api_key': 'test', 'model': 'test'})()
     request = request_for(prompt)
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
-        assert await generate_html(config, request, http) == html
+        from app.videos.film_modules import extract_film
+        assert extract_film(await generate_html(config, request, http)) == bundle
     assert len(sent) == 1
     model_input = json.loads(sent[0]['messages'][1]['content'])
     assert '人物作为整体' in model_input['animation_reference_adapter']

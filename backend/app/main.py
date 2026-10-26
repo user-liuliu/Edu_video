@@ -10,7 +10,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.admin import settings_router as admin_settings_router
 from app.admin import users_router as admin_users_router
+from app.account.router import router as account_router
 from app.auth import router as auth_router
+from app.credits.router import router as credits_router
 from app.config import Settings, get_settings
 from app.db import create_engine, create_sessionmaker, get_session
 from app.errors import validation_error_handler
@@ -23,6 +25,7 @@ from app.jobs.service import router as jobs_router
 from app.outline.router import router as outline_router
 from app.preferences.router import router as preferences_router
 from app.videos.router import router as videos_router
+from app.presentations.router import router as presentations_router
 from app.redis_client import create_redis
 from app.security import SecretBox
 
@@ -63,6 +66,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "db": True}
 
     app.include_router(auth_router)
+    app.include_router(account_router)
+    app.include_router(credits_router)
     app.include_router(admin_users_router)
     app.include_router(admin_settings_router)
     app.include_router(model_configs_router)
@@ -73,5 +78,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(outline_router)
     app.include_router(preferences_router)
     app.include_router(videos_router)
+    app.include_router(presentations_router)
 
     return app

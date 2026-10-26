@@ -1,0 +1,3 @@
+# Official PPT Master runtime
+Unmodified installed ppt-master 6.7.0 package, including SKILL.md, scripts, references, workflows, templates, licenses and sponsor attribution. Generated Python caches excluded. manifest.json records origin and SHA256. Runtime executes official attribution guard, canonical checker, finalize and native SVG-to-DrawingML exporter. No dangerous override or quick-mode bypass. No dependencies downloaded at runtime.
+The app confirmed outline and fixed style provide product interaction. Adapter applies official Strategist/Executor guidance and produces actual design artifacts; this is package integration, not a separate Codex skill session.

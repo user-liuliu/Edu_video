@@ -220,15 +220,15 @@ function field(w: Scope, label: string) {
 test('users: action buttons by status', async () => {
   const w = await mountTab(UsersTab)
   expect(m.listUsers).toHaveBeenCalledWith({ page: 1, page_size: 20 })
-  expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用户名', '角色', '状态', '注册时间', '视频项目数', '操作'])
+  expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用户名', '角色', '状态', '注册时间', '项目总数', '操作'])
 
   expect(buttons(row(w, '张老师'))).toEqual(['通过', '拒绝'])
   expect(row(w, '张老师').text()).toContain('待审核')
-  expect(buttons(row(w, '李老师'))).toEqual(['停用', '重置密码', '设为管理员'])
+  expect(buttons(row(w, '李老师'))).toEqual(['积分兑换码', '停用', '重置密码', '设为管理员'])
   expect(row(w, '李老师').text()).toContain('老师')
   expect(buttons(row(w, '赵老师'))).toEqual(['启用', '重置密码'])
   expect(buttons(row(w, '钱老师'))).toEqual(['通过'])
-  expect(buttons(row(w, 'admin'))).toEqual(['停用', '重置密码', '取消管理员'])
+  expect(buttons(row(w, 'admin'))).toEqual(['积分兑换码', '停用', '重置密码', '取消管理员'])
   expect(row(w, 'admin').text()).toContain('管理员')
   // 注册时间按本地时间显示
   expect(row(w, '张老师').text()).toContain(new Date('2026-10-16T08:30:00Z').toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }))
@@ -511,4 +511,18 @@ test('model config: web_search can test the configured Tavily service', async ()
   expect(m.testModelConfig).toHaveBeenCalledWith('outline_llm')
   expect(messageSuccess).toHaveBeenCalledWith('连接正常')
   expect(m.listModelConfigs).toHaveBeenCalledTimes(3)
+})
+
+
+test('users: project total shows video and PPT breakdown in the original count column',async()=>{
+ const items=users().map(u=>({...u,video_count:u.id==='u2'?2:0,ppt_count:u.id==='u2'?3:0,project_count:u.id==='u2'?5:0}))
+ m.listUsers.mockResolvedValue({items,total:items.length})
+ const w=await mountTab(UsersTab)
+ expect(w.findAll('thead th').map(th=>th.text())).toContain('项目总数')
+ const cell=row(w,'李老师').get('[data-testid="user-project-count"]')
+ expect(cell.get('strong').text()).toBe('5')
+ expect(cell.text()).toContain('视频 2')
+ expect(cell.text()).toContain('PPT 3')
+ expect(row(w,'张老师').get('[data-testid="user-project-count"] strong').text()).toBe('0')
+ expect(w.text()).not.toContain('视频项目数')
 })

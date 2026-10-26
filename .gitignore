@@ -5,3 +5,11 @@ __pycache__/
 node_modules/
 frontend/dist/
 .superpowers/
+
+# Local template review artifacts; production templates live under backend/app.
+/assets/ppt-templates/*/validation/
+/assets/ppt-templates/*/exports/
+/assets/ppt-templates/*/svg_output/
+/assets/ppt-templates/*/preview.html
+/assets/ppt-templates/teaching-styles-review_*.html
+/assets/ppt-templates/teaching-styles-cover_*.png

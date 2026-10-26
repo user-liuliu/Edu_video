@@ -67,7 +67,15 @@ async def list_projects(db: DB, user: CurrentTeacher, scope: Literal['all', 'dra
         conditions.append(exported_video)
     total = await db.scalar(select(func.count()).select_from(VideoProject).where(*conditions))
     items = (await db.execute(select(VideoProject).where(*conditions).order_by(VideoProject.updated_at.desc(), VideoProject.id).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    return ProjectList(items=[ProjectView.model_validate(p) for p in items], total=total or 0)
+    downloads={}
+    if items and scope!='drafts':
+        versions=(await db.execute(select(VideoVersion.project_id,VideoVersion.id).where(
+            VideoVersion.project_id.in_([p.id for p in items]),VideoVersion.owner_id==user.id,
+            VideoVersion.status=='succeeded',VideoVersion.media_key.is_not(None),VideoVersion.media_key!='',
+        ).order_by(VideoVersion.number.desc(),VideoVersion.created_at.desc(),VideoVersion.id))).all()
+        for project_id,version_id in versions:
+            downloads.setdefault(project_id,f'/api/projects/{project_id}/videos/{version_id}/media/final?download=1')
+    return ProjectList(items=[ProjectView.model_validate(p).model_copy(update={'download_url':downloads.get(p.id)}) for p in items], total=total or 0)
 
 
 @router.get('/{project_id}')

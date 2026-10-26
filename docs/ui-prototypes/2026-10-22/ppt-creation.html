@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="video"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"><title>视频 / PPT 切换 · 原页面样例</title><style>/* 前端 UI 设计最终稿：v3 简洁创作，蓝白教学工作区。 */
+:root {
+  --ev-color-primary: #2465d9;
+  --ev-color-primary-dark: #255eb6;
+  --ev-color-secondary: #5a83b5;
+  --ev-color-rail: #fafbfc;
+  --ev-color-bg: #ffffff;
+  --ev-color-surface: #ffffff;
+  --ev-color-surface-muted: #f7f9fc;
+  --ev-color-text: #252b38;
+  --ev-color-muted: #627087;
+  --ev-color-danger: #c44242;
+  --ev-color-success: #25815a;
+  --ev-color-border: #e4eaf2;
+  --ev-color-border-strong: #cbd7e6;
+  --ev-radius: 12px;
+  --ev-shadow-sm: 0 3px 16px rgba(24, 58, 107, 0.03);
+  --ev-shadow-md: 0 10px 30px rgba(24, 58, 107, 0.08);
+  --ev-sidebar-width: 216px;
+  --ev-header-height: 68px;
+  --ev-font-sans: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ev-font-display: var(--ev-font-sans);
+
+  --el-color-primary: var(--ev-color-primary);
+  --el-color-primary-light-3: #668fe3;
+  --el-color-primary-light-5: #a2beee;
+  --el-color-primary-light-7: #d0dff8;
+  --el-color-primary-light-8: #e2ecfc;
+  --el-color-primary-light-9: #f0f5ff;
+  --el-color-primary-dark-2: var(--ev-color-primary-dark);
+  --el-color-success: var(--ev-color-success);
+  --el-color-success-light-9: #edf5ef;
+  --el-color-danger: var(--ev-color-danger);
+  --el-color-danger-light-9: #f9edeb;
+  --el-text-color-primary: var(--ev-color-text);
+  --el-text-color-regular: var(--ev-color-text);
+  --el-text-color-secondary: var(--ev-color-muted);
+  --el-bg-color: var(--ev-color-surface);
+  --el-bg-color-page: var(--ev-color-bg);
+  --el-border-color: var(--ev-color-border);
+  --el-border-color-light: #eaf0f7;
+  --el-border-color-lighter: #f0f3f8;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 4px;
+  --el-font-family: var(--ev-font-sans);
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html,
+body,
+#app { min-height: 100%; margin: 0; }
+
+body {
+  background: var(--ev-color-bg);
+  color: var(--ev-color-text);
+  font-family: var(--ev-font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 { margin: 0; line-height: 1.3; font-weight: 700; }
+a { color: var(--ev-color-primary-dark); }
+button,
+a,
+.el-button,
+.el-input__wrapper,
+.el-select__wrapper { transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+
+/* Keep browser-autofilled credentials aligned with the form surface. */
+input:autofill,
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--ev-color-text);
+  caret-color: var(--ev-color-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--ev-color-surface) inset;
+  box-shadow: 0 0 0 1000px var(--ev-color-surface) inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+:focus-visible { outline: 2px solid var(--ev-color-primary); outline-offset: 2px; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ev-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ev-color-border);
+  border-radius: var(--ev-radius);
+  background: var(--ev-color-surface);
+  box-shadow: var(--ev-shadow-sm);
+}
+
+.ev-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ev-table th,
+.ev-table td { padding: 12px 14px; border-bottom: 1px solid var(--el-border-color-lighter); text-align: left; vertical-align: top; }
+.ev-table thead th { background: var(--ev-color-surface-muted); color: var(--ev-color-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.ev-table tbody tr:last-child > * { border-bottom: 0; }
+.ev-table tbody tr:hover > * { background: var(--ev-color-surface-muted); }
+.ev-muted { color: var(--ev-color-muted); font-size: 13px; }
+
+.el-button { min-height: 40px; font-weight: 500; }
+.el-button > span { gap: 7px; }
+.el-button.is-text { min-height: 36px; }
+.el-input__wrapper, .el-select__wrapper { min-height: 44px; }
+.el-form-item__label { font-size: 13px; color: var(--ev-color-muted); }
+.el-textarea__inner { padding: 12px 14px; line-height: 1.8; }
+.el-dialog, .el-message-box { border-radius: 14px; }
+.el-dialog { max-width: calc(100vw - 32px); }
+.el-select-dropdown__item { min-height: 38px; line-height: 38px; }
+.el-tag { border-radius: 5px; }
+.el-alert { border-radius: 9px; }
+.el-empty { padding: 56px 16px; }
+.el-pagination { margin-top: 28px; justify-content: center; }
+
+@media (max-width: 1180px) { :root { --ev-sidebar-width: 192px; } }
+@media (max-width: 650px) {
+  :root { --ev-header-height: 60px; }
+  .el-input__inner, .el-textarea__inner { font-size: 16px; }
+  .el-message { max-width: calc(100vw - 24px); }
+  .el-message__content { overflow-wrap: anywhere; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.app-shell{min-height:100vh;background:var(--ev-color-bg)}
+.header-brand{display:flex;align-items:center;gap:12px;min-width:0}.rail-toggle{display:grid;place-items:center;flex:none;width:36px;height:36px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ev-color-muted);cursor:pointer}.rail-toolbar{display:flex;align-items:center;justify-content:flex-end;min-height:36px;margin:-16px 0 8px}.rail-toolbar .rail-caption{flex:1;margin:0 0 0 14px}.rail-toggle .app-icon{width:20px;height:20px}.rail-toggle:hover{background:var(--el-color-primary-light-9);color:var(--ev-color-primary)}
+.skip-link{position:fixed;top:-80px;left:16px;z-index:2000;padding:12px 18px;border-radius:8px;background:var(--ev-color-primary);color:white}.skip-link:focus{top:10px}
+.app-header{display:flex;align-items:center;justify-content:space-between;gap:16px;height:var(--ev-header-height);padding:0 30px 0 24px;border-bottom:1px solid var(--ev-color-border);background:var(--ev-color-surface)}
+.brand{display:inline-flex;align-items:center;gap:10px;color:#2b4b7e;font-size:16px;font-weight:650;letter-spacing:.01em;text-decoration:none;white-space:nowrap}.brand .app-icon{width:30px;height:30px;color:var(--ev-color-primary)}
+.account-link{display:inline-flex;align-items:center;gap:9px;min-width:0;text-decoration:none;--avatar-size:32px}.app-nav{display:flex;align-items:center;gap:18px;min-width:0;font-size:13px}.username{max-width:180px;overflow:hidden;color:var(--ev-color-muted);text-overflow:ellipsis;white-space:nowrap}.nav-link{color:var(--ev-color-primary-dark);font-size:13px;text-decoration:none}.nav-link:hover{text-decoration:underline}
+.app-body{display:flex;min-height:calc(100vh - var(--ev-header-height))}
+.side-rail{display:flex;flex-direction:column;gap:0;width:var(--ev-sidebar-width);flex:0 0 var(--ev-sidebar-width);padding:28px 14px;background:var(--ev-color-rail);border-right:1px solid #edf0f4}
+.app-header--sticky{position:sticky;top:0;z-index:30}.side-rail--sticky{position:sticky;top:var(--ev-header-height);align-self:flex-start;height:calc(100vh - var(--ev-header-height));overflow-y:auto}
+.rail-caption{margin:0 14px 18px;color:var(--ev-color-muted);font-size:11px;font-weight:400}.rail-link{display:flex;align-items:center;gap:12px;min-height:46px;margin:7px 0;padding:11px 14px;border:1px solid transparent;border-radius:8px;color:#647080;font-size:13px;text-decoration:none;white-space:nowrap}.rail-link .app-icon{width:19px;height:19px}.rail-link:hover{background:#f0f4fa;color:var(--ev-color-primary-dark)}.rail-link.active{background:#eaf2ff;color:var(--ev-color-primary-dark);font-weight:600}
+.app-main{flex:1;min-width:0;width:100%;padding:34px clamp(24px,3.3vw,58px) 56px}.app-main>section{max-width:1420px;margin-left:auto;margin-right:auto}
+@media(max-width:900px){.app-header{padding:0 22px}.app-body{display:block}.side-rail{width:100%;padding:9px 18px;display:flex;flex-direction:row;align-items:center;gap:5px;border-right:0;border-bottom:1px solid var(--ev-color-border);overflow-x:auto;scrollbar-width:thin}.side-rail--sticky{top:var(--ev-header-height);height:auto;z-index:25}.rail-caption{display:none}.rail-link{margin:0;justify-content:center;flex:1;padding:9px 12px;gap:8px;min-height:44px}.app-main{padding:28px 24px 42px}}
+@media(max-width:650px){.app-header{padding:0 16px;gap:10px}.brand{font-size:14px;gap:7px}.brand .app-icon{width:24px;height:24px}.app-nav{gap:8px;font-size:12px}.username{max-width:84px}.nav-link{font-size:12px}.app-nav .el-button{padding:8px}.side-rail{padding:8px 9px;gap:2px}.rail-link{flex-direction:column;gap:4px;padding:7px 8px;font-size:11px;min-height:55px}.rail-link .app-icon{width:18px;height:18px}.app-main{padding:24px 16px 36px}}
+@media(max-width:360px){.username{max-width:54px}.brand{font-size:13px}.app-header{padding:0 10px}.rail-link{padding:7px 5px}}
+@media(min-width:901px){.side-rail{transition:width .24s ease,flex-basis .24s ease,padding .24s ease;overflow-x:hidden}.rail-link{position:relative}.rail-link>span{transition:opacity .16s ease}.rail-collapsed .side-rail{width:72px;flex-basis:72px;padding-left:10px;padding-right:10px}.rail-collapsed .rail-link{justify-content:center;padding:11px}.rail-collapsed .rail-link>span,.rail-collapsed .rail-caption{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;opacity:0}}
+@media(max-width:900px){.rail-toolbar{display:none}.rail-toggle{display:none}.header-brand{gap:0}}
+@media(min-width:901px){.rail-collapsed .rail-toolbar{justify-content:center}}
+.creation-workspace .app-main{padding-top:16px;padding-bottom:16px}
+@media(prefers-reduced-motion:reduce){.side-rail,.rail-link>span{transition:none}}
+
+.create-page{width:100%;max-width:1180px!important;padding-top:0}
+.creation-welcome{display:flex;align-items:center;justify-content:center;gap:4px;margin:0 0 10px;min-height:50px;font-family:"STKaiti","KaiTi","Noto Serif SC",serif;font-size:clamp(30px,3.4vw,46px);line-height:1.2;letter-spacing:.06em;color:var(--ev-color-text)}
+.creation-welcome span{display:inline-grid;place-items:center;width:1.35em;height:1.35em;margin:0 3px;color:var(--ev-color-primary);border-radius:50%;background:linear-gradient(140deg,#f5f8ff,#edf2ff);box-shadow:2px 4px 12px #31569418;font-size:1.12em}
+.creation-composer{width:100%;border:1px solid #dfe5ee;border-radius:18px;background:var(--ev-color-surface);box-shadow:var(--ev-shadow-sm);overflow:hidden}
+.creation-composer:focus-within{border-color:#adc8ee;box-shadow:0 4px 20px #285bb508}
+.composer-input{padding:0 22px}
+.project-line{display:flex;align-items:center;gap:14px;padding:7px 0;border-bottom:1px solid #f0f2f6;margin:0}
+.project-line .el-form-item__label{height:auto;line-height:1.6;flex:none;padding:0;color:var(--ev-color-muted)}
+.project-line .el-form-item__content{flex:1;min-width:0}
+.project-line .el-input__wrapper{box-shadow:none;background:transparent;padding-left:0;min-height:34px}
+.project-line .el-input__inner{font-size:14px;font-weight:500}
+.prompt-field{padding-top:10px;margin-bottom:6px}
+.prompt-field .el-form-item__label{font-size:12px;margin-bottom:2px}
+.prompt-field .el-textarea__inner{box-shadow:none;padding:4px 0 20px;font-size:15px;line-height:1.7;min-height:82px!important;height:clamp(82px,calc(100dvh - 720px),156px);resize:vertical}
+.prompt-field .el-input__count{right:0;color:var(--ev-color-muted);font-size:11px}
+.composer-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:4px 0 10px}
+.composer-search{display:flex;align-items:center;gap:8px;color:var(--ev-color-muted);font-size:12px}
+.composer-search>.app-icon{width:17px;height:17px}
+.composer-search .el-switch{height:32px}
+.actions{display:flex;flex-wrap:wrap;gap:9px;margin-left:auto}.actions .el-button{margin:0}.actions .app-icon{width:17px;height:17px}
+.creation-settings{padding:12px 22px 14px;border-top:1px solid #e8edf5;background:#fafbfd}
+.creation-settings h2{display:flex;align-items:center;gap:8px;color:var(--ev-color-muted);font-size:12px;font-weight:500;margin:0 0 10px}
+.creation-settings h2>.app-icon{width:16px;height:16px}
+.creation-settings-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 18px}
+.creation-settings-grid .el-form-item{min-width:0;margin:0}
+.creation-settings-grid .el-form-item__label{display:flex;align-items:center;gap:7px;font-size:12px;padding:0;margin-bottom:5px;height:auto;line-height:1.5}
+.creation-settings-grid .el-form-item__label .app-icon{width:16px;height:16px;color:#7188a7}
+.creation-settings-grid .el-select{width:100%;min-width:0}
+.creation-settings-grid .el-select__wrapper{font-size:13px;min-height:36px}
+.creation-settings-grid .el-input-number{width:100%;margin-top:8px}
+.creation-notes{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:2px 12px;margin:6px 3px;color:var(--ev-color-muted);font-size:11px;line-height:1.6}.creation-help{display:inline-flex;align-items:center;gap:4px;min-height:28px;border:0;padding:2px 4px;border-radius:5px;background:transparent;color:var(--ev-color-primary-dark);font:inherit;cursor:pointer}.creation-help .app-icon{width:14px;height:14px}.creation-help:hover{background:var(--ev-color-surface-muted)}
+.create-page>.creation-steps{justify-content:center;border-bottom:0;margin:8px 0 0}
+.create-page>.creation-steps li{padding-bottom:8px}
+.composer-input .materials{margin-bottom:4px}
+.composer-input .materials .file-button{min-height:32px;padding-top:4px;padding-bottom:4px}
+.composer-input .materials>p{line-height:1.5;margin:2px 0 4px}
+.composer-input .materials ul{max-height:128px;overflow-y:auto;overscroll-behavior:contain}
+.el-alert{margin-bottom:10px}
+@media(min-width:651px) and (max-width:900px){.creation-settings-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.creation-settings{padding-left:16px;padding-right:16px}.creation-settings-grid .el-form-item__label{gap:4px}.creation-settings-grid .el-form-item__label .app-icon{width:14px;height:14px}}
+@media(min-width:651px) and (max-height:760px){.creation-welcome{font-size:32px;min-height:48px;margin-bottom:8px}}
+@media(min-width:1700px){.create-page{max-width:1320px!important}}
+@media(max-width:650px){.creation-welcome{min-height:48px;font-size:30px;margin-bottom:14px}.composer-input{padding:0 16px}.creation-composer{border-radius:15px}.project-line{gap:9px}.project-line .el-input__inner{font-size:16px}.prompt-field .el-textarea__inner{font-size:16px;height:108px}.creation-settings{padding:14px 16px}.creation-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 12px}.creation-settings-grid .el-select__wrapper{min-height:44px}.composer-toolbar{gap:8px;padding-bottom:14px}.composer-search{font-size:11px;gap:6px}.actions{gap:6px}.actions .el-button{padding:10px;font-size:12px}.creation-notes p{font-size:11px}.create-page>.creation-steps{gap:12px}}
+
+.materials{padding:0;margin-bottom:12px}.upload-heading{display:flex;align-items:center;gap:12px}.file-button{position:relative;display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:8px 10px;margin-left:-10px;border:1px solid transparent;border-radius:7px;cursor:pointer;color:var(--ev-color-primary-dark);font-size:12px;background:transparent}.file-button:hover{background:var(--ev-color-surface-muted)}.file-button .app-icon{width:18px;height:18px}.file-button input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}.file-button:focus-within{outline:2px solid var(--ev-color-primary);outline-offset:2px}.disabled{opacity:.55;cursor:not-allowed}p{font-size:11px;line-height:1.8;margin:4px 0 8px}ul{list-style:none;padding:0;margin:10px 0;display:grid;gap:8px}li{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:10px 12px;border:1px solid var(--ev-color-border);border-radius:8px;background:var(--ev-color-surface-muted);font-size:12px}li>div{min-width:0}strong,a{overflow-wrap:anywhere}a{color:var(--ev-color-primary-dark)}small{display:block;color:var(--ev-color-muted);margin-top:4px;font-size:11px}.error{color:var(--ev-color-danger)}.material-actions{display:flex;align-items:center;flex-shrink:0}.material-actions .el-button{margin:0}@media(max-width:480px){li{flex-wrap:wrap;gap:4px}.materials>p{font-size:11px}}
+.upload-hint{color:var(--ev-color-muted);font-size:11px;line-height:1.5}.material-help{display:grid;place-items:center;flex:none;width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--ev-color-muted);cursor:pointer}.material-help:hover{background:var(--ev-color-surface-muted);color:var(--ev-color-primary)}.material-help .app-icon{width:16px;height:16px}.materials--compact .upload-heading{gap:8px;flex-wrap:wrap}.materials--compact .file-button{min-height:32px;padding-top:4px;padding-bottom:4px}.materials--compact{margin-bottom:4px}@media(max-width:480px){.upload-hint{flex:1;min-width:120px;font-size:10px}.materials--compact .upload-heading{gap:4px}}
+
+.creation-steps{display:flex;list-style:none;padding:0;margin:0 0 28px;gap:32px;border-bottom:1px solid var(--ev-color-border);flex-wrap:wrap}.creation-steps li{position:relative;display:flex;align-items:center;gap:9px;padding-bottom:15px;color:var(--ev-color-muted);font-size:12px}.creation-steps span{display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--ev-color-border);border-radius:50%;font-size:11px;font-variant-numeric:tabular-nums}.creation-steps .current{color:var(--ev-color-primary-dark);font-weight:600}.current:after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ev-color-primary)}.current span{background:var(--ev-color-primary);color:white;border-color:var(--ev-color-primary)}.creation-steps small{font-size:11px}@media(max-width:650px){.creation-steps{gap:20px}.creation-steps li{gap:6px;font-size:11px;padding-bottom:12px}.creation-steps span{width:21px;height:21px}}
+
+.balance-link{display:flex;align-items:center;gap:12px;flex:none;margin-top:auto;padding:17px 14px;border:1px solid #dce7fa;border-radius:12px;background:linear-gradient(125deg,#f0f5ff,#fbfdff);color:var(--ev-color-primary-dark);text-decoration:none;transition:border-color .18s,box-shadow .18s;min-height:82px}.balance-link:hover,.balance-link.active{border-color:var(--ev-color-primary);box-shadow:0 3px 12px #2563eb0a}.balance-link:focus-visible{outline:2px solid var(--ev-color-primary);outline-offset:3px}.wallet-icon{display:grid;place-items:center;width:32px;height:36px}.wallet-icon .app-icon{width:24px;height:24px}.wallet-content{flex:1;min-width:0}.wallet-label{display:flex;align-items:center;justify-content:space-between;font-size:12px;gap:10px}.wallet-label .app-icon{width:14px;height:14px}.wallet-points{display:flex;align-items:baseline;gap:6px;margin-top:6px;font-size:23px;font-weight:650;line-height:1.1;font-variant-numeric:tabular-nums}.wallet-points small{font-size:11px;font-weight:400;color:var(--ev-color-muted)}.wallet-loading{display:block;margin-top:6px;font-size:11px;color:var(--ev-color-muted)}
+@media(min-width:901px){.rail-collapsed .balance-link{padding:10px;justify-content:center;min-height:48px}.rail-collapsed .wallet-content{display:none}}
+@media(max-width:900px){.balance-link{margin:0 0 0 5px;min-height:44px;padding:7px 11px;border-radius:8px;gap:7px}.wallet-icon{width:20px;height:24px}.wallet-icon .app-icon{width:19px;height:19px}.wallet-label{font-size:11px}.wallet-label .app-icon{display:none}.wallet-points{margin:3px 0 0;font-size:14px}.wallet-points small{font-size:10px}.wallet-loading{font-size:10px}}
+@media(max-width:650px){.balance-link{min-height:55px;flex:1;flex-direction:column;gap:3px;margin:0;padding:6px 5px;background:transparent;border-color:transparent}.wallet-icon{display:none}.wallet-label{white-space:nowrap;font-size:11px}.wallet-points{justify-content:center;font-size:13px}.wallet-points small{display:none}}
+@media(prefers-reduced-motion:reduce){.balance-link{transition:none}}
+
+[hidden]{display:none!important}button,input,textarea,select{font:inherit}button{cursor:pointer;color:inherit}a{text-decoration:none}svg.app-icon{display:inline-block;width:20px;height:20px;flex:none;vertical-align:middle}.el-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:10px 15px;border:1px solid #dcdfe6;border-radius:8px;background:white;color:#606266;font-size:14px;white-space:nowrap}.el-button:hover{color:var(--ev-color-primary);background:#f0f5ff}.el-button.primary{background:var(--ev-color-primary);border-color:var(--ev-color-primary);color:white}.el-button.is-text{border-color:transparent;background:transparent;font-size:13px}.el-form-item__content{display:flex;align-items:center;min-width:0}.el-input__wrapper{width:100%;display:flex;align-items:center}.el-input__inner{width:100%;border:0;outline:0;background:transparent;min-height:34px;color:var(--ev-color-text);padding:0}.el-input__inner:focus-visible{outline:2px solid var(--ev-color-primary);border-radius:3px}.el-form-item__label{display:block;font-size:13px;color:var(--ev-color-muted);line-height:1.6}.required{color:#f56c6c;margin-right:4px}.el-textarea{position:relative;width:100%}.el-textarea__inner{display:block;width:100%;border:0;outline:0;background:white;border-radius:4px;color:var(--ev-color-text);font-family:inherit}.el-textarea__inner:focus-visible{outline:2px solid var(--ev-color-primary);outline-offset:2px}.el-input__count{position:absolute;bottom:3px;right:0;color:var(--ev-color-muted);font-size:11px;background:white}.el-select__wrapper{display:block;width:100%;height:36px;border:1px solid #dcdfe6;border-radius:4px;background:white;padding:5px 10px;color:#606266;font:inherit}.switch{width:40px;height:20px;border:0;border-radius:12px;background:#dcdfe6;padding:2px}.switch:before{content:'';display:block;width:16px;height:16px;background:white;border-radius:50%;transition:transform .16s}.switch[aria-checked=true]{background:var(--ev-color-primary)}.switch[aria-checked=true]:before{transform:translateX(20px)}.user-avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#edf4ff;color:var(--ev-color-primary);font-size:12px}
+/* The only added component: a compact generation-mode switch. */
+.creation-mode{display:flex;justify-content:center;margin:4px 0 16px}.mode-group{display:inline-flex;gap:4px;padding:4px;border:1px solid #dbe5f3;background:#f6f8fc;border-radius:10px}.mode-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;min-height:40px;padding:8px 18px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--ev-color-muted);font-size:14px;transition:none}.mode-button .app-icon{width:18px;height:18px}.mode-button:hover{color:var(--ev-color-primary);background:#edf3ff}.mode-button[aria-pressed=true]{background:var(--ev-color-primary);border-color:var(--ev-color-primary);color:white;box-shadow:0 2px 4px #2465d91a}.creation-welcome{margin-bottom:7px}.toast{position:fixed;top:84px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);z-index:100;background:#f0f5ff;color:#255eb6;border:1px solid #d0dff8;border-radius:8px;padding:10px 18px;font-size:13px;box-shadow:0 4px 20px #183a6b12}.error{color:#c44242;font-size:12px;margin:0 0 10px}.materials li .remove-file{border:0;background:transparent;color:#c44242;font-size:12px;min-height:36px;min-width:44px}.preview-help{position:relative}.help-popover{position:absolute;bottom:36px;right:0;width:min(300px,calc(100vw - 40px));padding:12px 16px;border:1px solid var(--ev-color-border);border-radius:8px;background:white;box-shadow:0 4px 20px #183a6b16;color:var(--ev-color-text);font-size:12px;text-align:left;z-index:5}
+@media(max-width:900px){.creation-settings-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:650px){.creation-mode{margin:0 0 15px}.mode-button{min-width:118px;min-height:40px;font-size:13px}.creation-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.el-select__wrapper{height:44px}.creation-notes{font-size:10px}.el-button{font-size:12px}.creation-welcome{margin-bottom:10px}.rail-link{font-size:10px;padding-left:4px;padding-right:4px}.balance-link .wallet-label{font-size:10px}.balance-link .wallet-loading{display:none}}
+.create-page>.creation-steps li{border:0;border-radius:0;background:transparent;padding:0 0 8px;justify-content:flex-start;margin:0;font-size:12px}.create-page>.creation-steps li>span{flex:none}.create-page>.creation-steps{margin:8px 0 0;gap:32px}.create-page>.creation-steps li.current{color:var(--ev-color-primary-dark)}@media(max-width:650px){.create-page>.creation-steps{gap:12px}.create-page>.creation-steps li{font-size:11px;gap:6px}}
+/* Match both modes' geometry; only mode-specific settings and copy change. */
+.actions #generate{min-width:145px;justify-content:center;white-space:nowrap}
+.actions #save-draft{min-width:112px;justify-content:center;white-space:nowrap}
+#voice-note{flex:0 0 264px;text-align:center}
+.create-page>.creation-steps li{flex:0 0 90px;white-space:nowrap}
+@media(max-width:650px){.actions #generate{min-width:124px}.actions #save-draft{min-width:94px}#voice-note{flex-basis:240px}.create-page>.creation-steps li{flex-basis:82px}}
+
+#ppt-settings .ppt-settings-grid{grid-template-columns:minmax(0,360px)}
+</style></head><body>
+<div class="app-shell creation-workspace" id="app-shell"><a class="skip-link" href="#main-content">跳到主要内容</a><header class="app-header app-header--sticky"><div class="header-brand"><div class="brand"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5C9 3 6 3 2 4v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-4-1-7-1-10 1Zm0 0v15"/></svg><span>教学视频助手</span></div></div><div class="app-nav"><div class="account-link"><span class="user-avatar">师</span><span class="username">教师工作台</span></div><button class="el-button is-text" type="button" id="logout">退出</button></div></header>
+<div class="app-body"><aside class="side-rail side-rail--sticky" id="app-sidebar" aria-label="教师导航"><div class="rail-toolbar"><button type="button" class="rail-toggle" id="rail-toggle" aria-label="收起侧边栏" aria-expanded="true" aria-controls="app-sidebar"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m13 7-5 5 5 5m6-10-5 5 5 5"/></svg></button></div><div class="rail-link active"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18v16H3ZM10 9l5 3-5 3Z"/></svg><span>视频制作</span></div><div class="rail-link"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h16v16H5ZM16 2H5a3 3 0 0 0-3 3v11m9-6 5 3-5 3Z"/></svg><span>我的视频</span></div><div class="rail-link"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h6l2-3h6a2 2 0 0 1 2 2v13H4ZM4 10h16m-11 5h6"/></svg><span>草稿箱</span></div><div class="rail-link"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 8a3.5 3.5 0 1 0 7 0 3.5 3.5 0 1 0-7 0M5 21v-2a7 7 0 0 1 14 0v2"/></svg><span>账户设置</span></div><div class="balance-link"><span class="wallet-icon"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4V7Zm11 4h5v6h-5a3 3 0 0 1 0-6Zm1 3h.01"/></svg></span><span class="wallet-content"><span class="wallet-label">账户余额<svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></span><span class="wallet-loading">点击查看余额</span></span></div></aside>
+<main class="app-main" id="main-content"><section class="create-page"><h1 class="sr-only" id="page-title">视频制作</h1><div class="creation-welcome" aria-hidden="true">今天<span>讲</span>点啥？</div>
+<div class="creation-mode"><div class="mode-group" role="group" aria-label="选择生成类型"><button class="mode-button" data-mode="video" type="button" aria-pressed="true" aria-controls="creation-form"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18v16H3ZM10 9l5 3-5 3Z"/></svg>生成视频</button><button class="mode-button" data-mode="ppt" type="button" aria-pressed="false" aria-controls="creation-form"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h18v14H3ZM12 17v5m-4 0 4-5 4 5M7 8h5m-5 4h10"/></svg>生成 PPT</button></div></div>
+<p id="form-error" class="error" role="alert" hidden></p><form id="creation-form" class="creation-form creation-composer" novalidate><div class="composer-input">
+<div class="el-form-item project-line"><label class="el-form-item__label" for="project-name"><span class="required" aria-hidden="true">*</span>项目名称</label><div class="el-form-item__content"><div class="el-input__wrapper"><input class="el-input__inner" id="project-name" maxlength="200" placeholder="请输入项目名称" required aria-describedby="form-error"></div></div></div>
+<div class="el-form-item prompt-field"><label class="el-form-item__label" for="requirement"><span class="required" aria-hidden="true">*</span>想讲什么</label><div class="el-form-item__content"><div class="el-textarea"><textarea class="el-textarea__inner" id="requirement" rows="3" maxlength="20000" required placeholder="例如：给初三学生讲解二次函数，用投篮的例子帮助理解抛物线。" aria-describedby="form-error requirement-count"></textarea><span class="el-input__count" id="requirement-count">0 / 20000</span></div></div></div>
+<section class="materials materials--compact" aria-label="参考素材"><div class="upload-heading"><label class="file-button"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8m-3 9 4-4"/></svg><span>参考素材</span><input id="material-files" type="file" multiple accept=".ppt,.pptx,.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" aria-label="上传参考素材"></label><span class="upload-hint">保存草稿时上传，生成大纲时解析</span><div class="preview-help"><button class="material-help" type="button" id="material-help" aria-label="查看素材上传说明" aria-expanded="false" aria-controls="material-description"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M12 11v6m0-10v.01"/></svg></button><div class="help-popover" id="material-description" hidden>支持 PPT/PPTX、PDF、Word、PNG/JPEG/WebP。单文件 25 MiB，每项目最多 10 个文件、累计 100 MiB。此 HTML 样例仅展示选中的文件，不上传。</div></div></div><ul id="file-list" hidden></ul></section>
+<div class="composer-toolbar"><div class="composer-search"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M12 3c-5 5-5 13 0 18 5-5 5-13 0-18ZM3 12h18"/></svg><span>联网搜索</span><button type="button" class="switch" id="web-search" role="switch" aria-label="联网搜索" aria-checked="false"></button></div><div class="actions"><button class="el-button" type="button" id="save-draft"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3h13l4 4v14H3V3Zm3 0v6h10V3M7 21v-8h10v8"/></svg>保存草稿</button><button class="el-button primary" type="submit" id="generate"><span id="generate-label">生成大纲</span><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></div></div></div>
+<section class="creation-settings" id="video-settings" aria-label="视频设置"><h2><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M5 7a3 3 0 1 0 6 0 3 3 0 1 0-6 0m8 10a3 3 0 1 0 6 0 3 3 0 1 0-6 0"/></svg>视频设置</h2><div class="parameter-grid creation-settings-grid"><div class="el-form-item"><label class="el-form-item__label" for="setting-subject"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5C9 3 6 3 2 4v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-4-1-7-1-10 1Zm0 0v15"/></svg><span>学科</span></label><select class="el-select__wrapper" id="setting-subject"><option>数学</option><option>语文</option><option>英语</option><option>物理</option></select></div><div class="el-form-item"><label class="el-form-item__label" for="setting-grade"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 9 10-5 10 5-10 5Zm4 2v6q6 5 12 0v-6m4-2v8"/></svg><span>年级</span></label><select class="el-select__wrapper" id="setting-grade"><option>初三</option><option>初一</option><option>初二</option><option>高一</option></select></div><div class="el-form-item"><label class="el-form-item__label" for="setting-textbook_edition"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3h14a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2Zm0 13h16M8 7h8M8 11h6"/></svg><span>教材版本</span></label><select class="el-select__wrapper" id="setting-textbook_edition"><option>人教版</option><option>北师大版</option><option>苏教版</option></select></div><div class="el-form-item"><label class="el-form-item__label" for="setting-duration"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M12 7v5l3 2"/></svg><span>视频时长</span></label><select class="el-select__wrapper" id="setting-duration"><option>3 分钟</option><option>5 分钟</option><option>8 分钟</option></select></div><div class="el-form-item"><label class="el-form-item__label" for="setting-aspect_ratio"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18v14H3ZM7 9h3m-3 0v3m10 3h-3m3 0v-3"/></svg><span>画面比例</span></label><select class="el-select__wrapper" id="setting-aspect_ratio"><option>16:9 横屏</option><option>9:16 竖屏</option></select></div><div class="el-form-item"><label class="el-form-item__label" for="setting-voice"><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4Zm4 3a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg><span>配音声音</span></label><select class="el-select__wrapper" id="setting-voice"><option>系统配音（离线普通话）</option><option>模型配音</option></select></div></div></section><section class="creation-settings" id="ppt-settings" data-aspect-ratio="16:9" data-export-format="pptx" aria-label="PPT 设置" hidden><h2><svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M5 7a3 3 0 1 0 6 0 3 3 0 1 0-6 0m8 10a3 3 0 1 0 6 0 3 3 0 1 0-6 0"/></svg>PPT 设置</h2><div class="parameter-grid creation-settings-grid ppt-settings-grid"><div class="el-form-item"><label class="el-form-item__label" for="ppt-setting-style">课件风格</label><select class="el-select__wrapper" id="ppt-setting-style"><option value="auto">自动推荐</option><option value="simple">简洁教学</option><option value="illustration">活泼插画</option><option value="academic">学术正式</option></select></div></div></section></form>
+<div class="creation-notes"><span>关闭联网时仅参考素材与模型知识。</span><span id="voice-note">系统配音离线生成，不调用配音模型。</span><div class="preview-help"><button type="button" class="creation-help" id="creation-help" aria-expanded="false" aria-controls="creation-description">使用说明<svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M12 11v6m0-10v.01"/></svg></button><div class="help-popover" id="creation-description" hidden>关闭联网搜索后，仅使用上传素材与模型知识；无可靠依据的内容会标明“未核实出处”。此页面为 HTML 界面样例。</div></div></div>
+<ol class="creation-steps" id="creation-steps" aria-label="视频制作流程"><li class="current" aria-current="step"><span>1</span>输入需求</li><li><span>2</span>大纲草稿</li><li><span>3</span><b id="last-step" style="font-weight:inherit">视频预览</b></li></ol>
+</section></main></div></div><div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script>
+(()=>{
+'use strict';
+const $=id=>document.getElementById(id);
+const empty=()=>({title:'',prompt:'',files:[],web:false});
+const drafts={video:empty(),ppt:empty()};
+let mode=new URLSearchParams(location.search).get('mode')==='ppt'?'ppt':'video',timer;
+function remember(){drafts[mode].title=$('project-name').value;drafts[mode].prompt=$('requirement').value;}
+function hideError(){$('form-error').hidden=true;for(const id of ['project-name','requirement'])$(id).removeAttribute('aria-invalid');}
+function error(message){$('form-error').textContent=message;$('form-error').hidden=false;}
+function notice(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(timer);timer=setTimeout(()=>{$('toast').hidden=true;},3300);}
+function files(){const list=$('file-list');list.replaceChildren();list.hidden=!drafts[mode].files.length;for(const file of drafts[mode].files){const li=document.createElement('li'),info=document.createElement('div'),name=document.createElement('strong'),size=document.createElement('small'),remove=document.createElement('button');name.textContent=file.name;size.textContent=(file.size/1024).toFixed(1)+' KiB · 点击保存草稿时上传';info.append(name,size);remove.type='button';remove.className='remove-file';remove.textContent='移除';remove.setAttribute('aria-label','移除 '+file.name);remove.addEventListener('click',()=>{drafts[mode].files=drafts[mode].files.filter(f=>f!==file);files();});li.append(info,remove);list.append(li);}}
+function render(){document.documentElement.dataset.mode=mode;const ppt=mode==='ppt';document.querySelectorAll('.mode-button').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===mode)));$('page-title').textContent=ppt?'PPT 制作':'视频制作';$('project-name').value=drafts[mode].title;$('requirement').value=drafts[mode].prompt;$('requirement').placeholder=ppt?'例如：给初三学生制作一份二次函数课件，用投篮的例子帮助理解抛物线。':'例如：给初三学生讲解二次函数，用投篮的例子帮助理解抛物线。';$('requirement-count').textContent=drafts[mode].prompt.length+' / 20000';$('generate-label').textContent=ppt?'生成 PPT 大纲':'生成大纲';$('video-settings').hidden=ppt;$('ppt-settings').hidden=!ppt;$('voice-note').textContent=ppt?'默认 16:9，可导出整份可编辑 PPTX。':'系统配音离线生成，不调用配音模型。';$('last-step').textContent=ppt?'PPT 预览':'视频预览';$('creation-steps').setAttribute('aria-label',ppt?'PPT 制作流程':'视频制作流程');$('web-search').setAttribute('aria-checked',String(drafts[mode].web));files();hideError();}
+for(const button of document.querySelectorAll('.mode-button'))button.addEventListener('click',()=>{if(mode===button.dataset.mode)return;remember();mode=button.dataset.mode;render();});
+for(const id of ['project-name','requirement'])$(id).addEventListener('input',()=>{remember();hideError();$('requirement-count').textContent=drafts[mode].prompt.length+' / 20000';});
+$('web-search').addEventListener('click',()=>{drafts[mode].web=!drafts[mode].web;$('web-search').setAttribute('aria-checked',String(drafts[mode].web));});
+$('material-files').addEventListener('change',event=>{hideError();const problems=[];for(const file of event.target.files){if(!/\.(pptx?|pdf|docx?|png|jpe?g|webp)$/i.test(file.name)){problems.push('文件类型不支持');continue;}if(file.size>25*1048576){problems.push('单个文件不能超过 25 MiB');continue;}if(drafts[mode].files.some(f=>f.name===file.name&&f.size===file.size&&f.lastModified===file.lastModified))continue;if(drafts[mode].files.length>=10){problems.push('每项目最多 10 个文件');continue;}if(drafts[mode].files.reduce((n,f)=>n+f.size,0)+file.size>100*1048576){problems.push('素材总计不能超过 100 MiB');continue;}drafts[mode].files.push(file);}files();event.target.value='';if(problems.length)error([...new Set(problems)].join('；'));});
+function validate(){remember();hideError();for(const [id,label] of [['project-name','项目名称'],['requirement','想讲什么']])if(!$(id).value.trim()){error('请填写'+label);$(id).setAttribute('aria-invalid','true');$(id).focus();return false;}return true;}
+$('save-draft').addEventListener('click',()=>{if(validate())notice('界面样例：填写内容保留在当前页面，未提交保存。');});
+$('creation-form').addEventListener('submit',event=>{event.preventDefault();if(validate())notice(mode==='ppt'?'界面样例：后续进入独立的 PPT 生成链路。':'界面样例：后续进入视频生成链路。');});
+for(const [trigger,panel] of [['material-help','material-description'],['creation-help','creation-description']])$(trigger).addEventListener('click',()=>{const opening=$(panel).hidden;$(panel).hidden=!opening;$(trigger).setAttribute('aria-expanded',String(opening));});
+$('rail-toggle').addEventListener('click',()=>{const closed=$('app-shell').classList.toggle('rail-collapsed');$('rail-toggle').setAttribute('aria-expanded',String(!closed));$('rail-toggle').setAttribute('aria-label',closed?'展开侧边栏':'收起侧边栏');});
+$('logout').addEventListener('click',()=>notice('当前为独立 HTML 界面样例。'));
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const id of ['material-description','creation-description'])$(id).hidden=true;});
+render();
+})();
+</script></body></html>

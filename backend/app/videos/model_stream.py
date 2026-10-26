@@ -5,23 +5,48 @@ import logging
 import time
 import httpx
 
+from app.outline.model_client import ModelCallError
+
 MAX_TRANSIENT_RETRIES = 3
+request_clock = time.monotonic
 
 
-async def animation_response(http, url, headers, payload):
-    from app.outline.model_client import ModelCallError, _http_failure, _retry_delay
+class SplitAnimationRequest(ModelCallError):
+    """A slow whole-film response should be retried with smaller output scope."""
+
+
+
+async def animation_response(http, url, headers, payload, *, split_on_slow_failure=False):
+    from app.outline.model_client import _http_failure, _retry_delay
     logger = logging.getLogger(__name__)
     # Retry transient transport/provider faults without changing the frozen prompt.
     # Permanent configuration errors must fail immediately; never log URLs,
     # exception messages, keys, prompts or provider response bodies.
     for attempt in range(MAX_TRANSIENT_RETRIES + 1):
         response = None
-        started = time.monotonic()
+        started = request_clock()
         exception_type = None
         try:
             response = await _animation_response_once(http, url, headers, payload)
             if response.is_success:
-                return response
+                # Some compatible gateways ignore stream=True and buffer JSON.
+                # Apply the same completion/error contract as actual SSE.
+                try:
+                    body = response.json()
+                except (ValueError, TypeError):
+                    body = None
+                if isinstance(body, dict) and body.get('error'):
+                    response = _stream_error_response(body['error'], response.headers)
+                else:
+                    choices = body.get('choices', []) if isinstance(body, dict) else []
+                    choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+                    if choice.get('finish_reason') == 'length':
+                        raise ModelCallError('动画模型达到输出长度上限，未生成完整内容', category='output_limit')
+                    if choice.get('finish_reason') == 'content_filter':
+                        raise ModelCallError('动画模型未通过服务方内容限制，请调整内容后重试', category='invalid_request')
+                    if choice.get('finish_reason') not in (None, 'stop'):
+                        raise ModelCallError('动画模型响应未完整结束，请重试', category='connection')
+                    return response
             failure = _http_failure(response)
         except ModelCallError as error:
             failure = error
@@ -31,9 +56,14 @@ async def animation_response(http, url, headers, payload):
         except httpx.HTTPError as error:
             exception_type = type(error).__name__
             failure = ModelCallError('整片动画模型连接中断，请稍后重试', category='connection')
-        retry = attempt < MAX_TRANSIENT_RETRIES and failure.category in ('timeout', 'connection', 'rate_limit', 'unavailable')
+        elapsed = request_clock() - started
+        split = split_on_slow_failure and elapsed >= 90 and failure.category in ('timeout', 'connection', 'unavailable')
+        retry = not split and attempt < MAX_TRANSIENT_RETRIES and failure.category in ('timeout', 'connection', 'rate_limit', 'unavailable')
         logger.warning('animation_request_failed category=%s status=%s exception_type=%s retry=%s retry_count=%s elapsed_seconds=%.1f',
-                       failure.category, failure.status_code, exception_type, retry, attempt, time.monotonic() - started)
+                       failure.category, failure.status_code, exception_type, retry, attempt, elapsed)
+        if split:
+            logger.warning('animation_request_recovery mode=ordered_modules category=%s elapsed_seconds=%.1f', failure.category, elapsed)
+            raise SplitAnimationRequest(str(failure), category=failure.category, status_code=failure.status_code) from None
         if not retry:
             raise failure from None
         await asyncio.sleep(_retry_delay(response, attempt))

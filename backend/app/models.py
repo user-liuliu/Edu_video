@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -50,6 +51,13 @@ class UserStatus(StrEnum):
     disabled = "disabled"
 
 
+class UserGender(StrEnum):
+    unspecified = "unspecified"
+    male = "male"
+    female = "female"
+    undisclosed = "undisclosed"
+
+
 def _str_enum(enum_cls: type[StrEnum]) -> Enum:
     """存成普通 VARCHAR（不建 PG 原生枚举类型、不加 CHECK），值为小写字符串。"""
     return Enum(
@@ -67,6 +75,12 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(32))
     password_hash: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str | None] = mapped_column(String(40))
+    gender: Mapped[UserGender] = mapped_column(
+        _str_enum(UserGender), default=UserGender.unspecified, server_default=UserGender.unspecified.value
+    )
+    school: Mapped[str | None] = mapped_column(String(100))
+    avatar_key: Mapped[str | None] = mapped_column(String(512))
     role: Mapped[UserRole] = mapped_column(
         _str_enum(UserRole), default=UserRole.teacher, server_default=UserRole.teacher.value
     )
@@ -80,6 +94,10 @@ class User(Base):
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
+
+    @property
+    def avatar_url(self) -> str | None:
+        return "/api/account/avatar" if self.avatar_key else None
 
 
 # 用户名不区分大小写唯一
@@ -242,3 +260,47 @@ class VideoSegment(Base):
     end: Mapped[float | None] = mapped_column(Float)
     fingerprint: Mapped[str] = mapped_column(String(64), default='', server_default='')
     assets: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
+class CreditWallet(Base):
+    __tablename__ = 'credit_wallets'
+    __table_args__ = (CheckConstraint('balance >= 0', name='nonnegative_balance'),)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), primary_key=True)
+    balance: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
+
+
+class CreditCode(Base):
+    __tablename__ = 'credit_codes'
+    __table_args__ = (CheckConstraint('amount > 0 AND amount <= 1000000', name='positive_amount'),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'))
+    digest: Mapped[str] = mapped_column(String(64), unique=True)
+    suffix: Mapped[str] = mapped_column(String(4))
+    amount: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CreditTransaction(Base):
+    __tablename__ = 'credit_transactions'
+    __table_args__ = (UniqueConstraint('kind', 'source_id', name='uq_credit_transactions_source'),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    source_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    description: Mapped[str] = mapped_column(String(240))
+    amount: Mapped[int] = mapped_column(Integer)
+    balance_after: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CreditReservation(Base):
+    __tablename__ = 'credit_reservations'
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('outline_jobs.id', ondelete='CASCADE'), primary_key=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey('users.id'), index=True)
+    amount: Mapped[int] = mapped_column(Integer)
+    description: Mapped[str] = mapped_column(String(240))
+    state: Mapped[str] = mapped_column(String(16), default='reserved', server_default='reserved')

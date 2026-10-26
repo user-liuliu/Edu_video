@@ -201,3 +201,18 @@ async def test_legacy_draft_style_is_ignored_without_invalidating_confirmed_outl
     assert saved['prompt'] == '用水墨风格讲一次函数'
     assert saved['status'] == 'outline_confirmed'
     assert saved['needs_regeneration'] is False
+
+
+async def test_works_cards_download_latest_successful_mp4_even_during_new_revision(teacher_client,db):
+    project=await create(teacher_client);row=await db.get(VideoProject,UUID(project['id']))
+    first=await add_video_version(db,row,number=1)
+    latest=await add_video_version(db,row,number=2)
+    await add_video_version(db,row,number=3,status='failed',media_key='videos/failed.mp4')
+    await add_video_version(db,row,number=4,status='preview_ready',media_key=None)
+    row.status='video_generating';await db.commit()
+    items=(await teacher_client.get('/api/projects?scope=completed')).json()['items']
+    assert items[0]['download_url']==f"/api/projects/{project['id']}/videos/{latest.id}/media/final?download=1"
+    assert str(first.id) not in items[0]['download_url']
+    draft=await create(teacher_client,title='还没导出')
+    drafts=(await teacher_client.get('/api/projects?scope=drafts')).json()['items']
+    assert next(p for p in drafts if p['id']==draft['id'])['download_url'] is None

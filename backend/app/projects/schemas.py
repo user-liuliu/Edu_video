@@ -33,6 +33,7 @@ class ProjectView(BaseModel):
     status: str
     revision: int
     needs_regeneration: bool
+    download_url: str | None = None
     created_at: datetime
     updated_at: datetime
 

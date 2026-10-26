@@ -1,12 +1,19 @@
 <script setup lang="ts">
 defineProps<{ name: string }>()
 const paths: Record<string, string> = {
+  wallet: 'M4 6V5a2 2 0 0 1 2-2h12v4M4 7h16v14H4V7Zm11 4h5v6h-5a3 3 0 0 1 0-6Zm1 3h.01',
+  ticket: 'M4 4h16v5a3 3 0 0 0 0 6v5H4v-5a3 3 0 0 0 0-6V4Zm9 3v2m0 3v2m0 3v1',
+  receipt: 'M5 3h14v18l-3-2-4 2-4-2-3 2V3Zm4 5h6m-6 4h6m-6 4h3',
+
   'chevrons-left': 'm13 7-5 5 5 5m6-10-5 5 5 5',
   'chevrons-right': 'm5 7 5 5-5 5m6-10 5 5-5 5',
   'panel-close': 'M3 4h18v16H3ZM9 4v16m7-12-4 4 4 4',
   'panel-open': 'M3 4h18v16H3ZM9 4v16m4-12 4 4-4 4',
   info: 'M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0M12 11v6m0-10v.01',
+  workbench: 'M3 3h7v7H3ZM14 3h7v7h-7ZM3 14h7v7H3Zm11 0h7v7h-7Z',
+  works: 'M3 5h18v14H3ZM3 16l5-5 4 4 3-3 6 6M8 8h.01',
   make: 'M3 4h18v16H3ZM10 9l5 3-5 3Z',
+  ppt: 'M4 3h16v13H4ZM12 16v5m-4 0 4-5 4 5M8 7h8M8 11h5',
   videos: 'M5 5h16v16H5ZM16 2H5a3 3 0 0 0-3 3v11m9-6 5 3-5 3Z',
   drafts: 'M4 7h6l2-3h6a2 2 0 0 1 2 2v13H4ZM4 10h16m-11 5h6',
   memory: 'M4 7h16M4 17h16M5 7a3 3 0 1 0 6 0 3 3 0 1 0-6 0m8 10a3 3 0 1 0 6 0 3 3 0 1 0-6 0',

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import UserOut, require_admin
 from app.db import get_session
 from app.models import User, UserStatus, VideoProject
+from app.presentations.models import PptProject
 
 from .schemas import ResetPasswordRequest, SetRoleRequest, UserActionRequest, UserListOut, AdminUserOut
 from .user_actions import apply_user_action, reset_password, set_role
@@ -56,7 +57,8 @@ async def list_users(
     )
     users = (await db.execute(stmt)).scalars().all()
     counts = dict((await db.execute(select(VideoProject.owner_id,func.count()).where(VideoProject.owner_id.in_([u.id for u in users])).group_by(VideoProject.owner_id))).all()) if users else {}
-    return UserListOut(items=[AdminUserOut(**UserOut.model_validate(u).model_dump(),video_count=counts.get(u.id,0)) for u in users], total=total or 0)
+    ppt_counts = dict((await db.execute(select(PptProject.owner_id,func.count()).where(PptProject.owner_id.in_([u.id for u in users])).group_by(PptProject.owner_id))).all()) if users else {}
+    return UserListOut(items=[AdminUserOut(**UserOut.model_validate(u).model_dump(),video_count=counts.get(u.id,0),ppt_count=ppt_counts.get(u.id,0),project_count=counts.get(u.id,0)+ppt_counts.get(u.id,0)) for u in users], total=total or 0)
 
 
 @router.post("/{user_id}/actions")

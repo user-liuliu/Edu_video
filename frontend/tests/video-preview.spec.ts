@@ -8,11 +8,12 @@ let wrapper:VueWrapper|undefined
 beforeEach(()=>{vi.spyOn(HTMLMediaElement.prototype,'pause').mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,'load').mockImplementation(()=>{})})
 afterEach(()=>{wrapper?.unmount();wrapper=undefined;vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();sessionStorage.clear()})
 function version(id='v1',status='succeeded',number=1){return {id,project_id:'p1',number,outline_revision:2,source_version_id:null,status,duration:8,created_at:'2026-10-18',style:{value:'science_animation'},job:{id:'j'+id,kind:'video',status:status==='queued'?'pending':status,stage:'正在制作动画（1/2）',progress:40,error_message:status==='failed'?'渲染失败，请重试':null},media_url:status==='succeeded'?'/api/projects/p1/videos/'+id+'/media/final':null,segments:[{id:'s'+id+'a',outline_segment_id:'o1',position:0,title:'观察图像',narration:'观察直线',start:0,end:4},{id:'s'+id+'b',outline_segment_id:'o1',position:1,title:'比较变化',narration:'比较斜率',start:4,end:8}]}}
-async function setup(initial:any[]=[],outlineStatus='outline_confirmed'){
+async function setup(initial:any[]=[],outlineStatus='outline_confirmed',available=100){
  vi.useFakeTimers();let versions=initial
  const calls:{url:string;method:string;body:any}[]=[]
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   const method=init?.method??'GET',body=init?.body?JSON.parse(String(init.body)):null;calls.push({url,method,body})
+  if(url==='/api/account/credits')return new Response(JSON.stringify({balance:available,reserved:0,available,video_cost:10,total_credited:100,total_spent:0}))
   if(url.endsWith('/outline'))return new Response(JSON.stringify({project_id:'p1',title:'一次函数',revision:2,status:outlineStatus,needs_save:false,needs_regeneration:false,segments:[]}))
   if(method==='POST'&&url.endsWith('/export'))return new Response(JSON.stringify({id:'export1',kind:'video_export',status:'pending',stage:'准备导出',progress:0}),{status:202})
   if(method==='POST'){const next=version('v2','queued',2);versions=[next,...versions];return new Response(JSON.stringify(next),{status:202})}
@@ -171,4 +172,20 @@ test('voice-only revision sends selected scope and keeps the transcript immutabl
  expect(call.body.segment_ids).toEqual(['sv1a'])
  expect(call.body.instruction).toBe('配音更自然清晰一些')
  expect(call.body).not.toHaveProperty('narration')
+})
+
+
+test('insufficient credits shows price and prevents generation request',async()=>{
+ const {w,calls}=await setup([],'outline_confirmed',9)
+ expect(w.text()).toContain('每次成功生成扣 10 积分')
+ await click('生成视频')
+ expect(w.text()).toContain('积分不足')
+ expect(calls.some(call=>call.method==='POST')).toBe(false)
+ expect(w.get('a[href="/account/balance"]').text()).toContain('兑换积分')
+})
+
+test('existing preview can export with zero credits',async()=>{
+ const {calls}=await setup([preview()],'preview_ready',0)
+ await click('满意，导出MP4')
+ expect(calls.filter(call=>call.method==='POST').map(call=>call.url)).toEqual(['/api/projects/p1/videos/v1/export'])
 })

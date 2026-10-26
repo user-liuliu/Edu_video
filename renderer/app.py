@@ -84,3 +84,33 @@ async def validate_html(request:Request):return await execute(request,'validate-
 
 @app.post('/render-html')
 async def render_html(request:Request):return await execute(request,'render-html')
+
+@app.post('/ppt-graphic')
+async def ppt_graphic(request:Request):
+    from app.presentations.graphic_contract import GraphicSpec, VERSION, LEGACY_VERSION, MAX_PNG
+    global busy
+    if busy:raise HTTPException(429,'渲染服务忙',headers={'Retry-After':'2'})
+    busy=True;process=None
+    try:
+        data=bytearray()
+        async for part in request.stream():
+            data.extend(part)
+            if len(data)>12000:raise HTTPException(413,'信息图请求过大')
+        try:
+            value=json.loads(data)
+            if not isinstance(value,dict) or set(value)!= {'version','source'}:raise ValueError()
+            if value['version'] not in (VERSION,LEGACY_VERSION):raise HTTPException(409,'信息图运行版本不一致')
+            source=GraphicSpec.model_validate(value['source'])
+        except (ValueError,TypeError,KeyError):raise HTTPException(422,'信息图参数无效') from None
+        with tempfile.TemporaryDirectory(prefix='edu-graphic-') as folder:
+            root=Path(folder);(root/'request.json').write_text(json.dumps({'version':value['version'],'source':source.model_dump()}),encoding='utf-8')
+            kwargs={'start_new_session':True} if os.name!='nt' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
+            process=await asyncio.create_subprocess_exec(sys.executable,'-m','renderer.ppt_worker',folder,stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL,**kwargs)
+            try:await asyncio.wait_for(process.wait(),timeout=35)
+            except asyncio.TimeoutError:raise HTTPException(504,'信息图渲染超时') from None
+            finally:await terminate_process(process)
+            output=root/'output.json'
+            if process.returncode or not output.is_file():raise HTTPException(422,'信息图渲染失败')
+            if output.stat().st_size>MAX_PNG*1.4+30000:raise HTTPException(413,'信息图输出过大')
+            return json.loads(output.read_text())
+    finally:busy=False

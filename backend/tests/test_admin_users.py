@@ -67,7 +67,7 @@ async def test_list_pending_first_and_filter(admin_client, make_user):
         "admin1",
     ]
     assert body["items"][0]["status"] == "pending"
-    assert set(body["items"][0]) == {"id", "username", "role", "status", "created_at", "video_count"}
+    assert set(body["items"][0]) == {"id", "username", "role", "status", "created_at", "video_count", "ppt_count", "project_count"}
 
     r = await admin_client.get("/api/admin/users", params={"status": "active"})
     body = r.json()
@@ -296,3 +296,23 @@ async def test_registration_toggle(admin_client, client):
     assert r.status_code == 200
     r = await client.post("/api/auth/register", json={"username": "new_one", "password": "pass1234"})
     assert r.status_code == 201
+
+
+async def test_admin_project_total_counts_video_and_ppt_once_with_owner_breakdown(admin_client,make_user,db):
+    from app.models import VideoProject
+    from app.presentations.models import PptProject
+    teacher=await make_user('project_owner');other=await make_user('ppt_only');empty=await make_user('empty_projects')
+    video=VideoProject(owner_id=teacher.id,title='视频草稿',prompt='视频需求',form_values={})
+    a=PptProject(owner_id=teacher.id,title='PPT草稿',prompt='需求',status='draft')
+    b=PptProject(owner_id=teacher.id,title='PPT成品',prompt='需求',status='ready',history=[{'revision':1,'pages':[{'id':'old'}]},{'revision':2,'pages':[{'id':'older'}]}])
+    db.add_all([video,a,b,PptProject(owner_id=other.id,title='独立课件',prompt='需求')]);await db.commit()
+    result=await admin_client.get('/api/admin/users');assert result.status_code==200,result.text
+    users={u['username']:u for u in result.json()['items']}
+    assert (users['project_owner']['project_count'],users['project_owner']['video_count'],users['project_owner']['ppt_count'])==(3,1,2)
+    assert (users['ppt_only']['project_count'],users['ppt_only']['video_count'],users['ppt_only']['ppt_count'])==(1,0,1)
+    assert (users['empty_projects']['project_count'],users['empty_projects']['video_count'],users['empty_projects']['ppt_count'])==(0,0,0)
+    filtered=(await admin_client.get('/api/admin/users',params={'q':'project_owner','page_size':1})).json()
+    assert filtered['total']==1 and filtered['items'][0]['project_count']==3
+    await db.delete(a);await db.commit()
+    filtered=(await admin_client.get('/api/admin/users',params={'q':'project_owner'})).json()
+    assert (filtered['items'][0]['project_count'],filtered['items'][0]['ppt_count'])==(2,1)
