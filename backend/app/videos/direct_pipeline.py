@@ -64,7 +64,7 @@ def html_generation_request(snapshot,targets,duration):
     return request
 
 
-def html_repair_request(request, html):
+def html_repair_request(request, html, *, feedback=''):
     """Keep frozen film constraints, omit duplicated creative reference documents."""
     if request.get('film_module_protocol'):
         bundle=extract_film(html)
@@ -77,6 +77,13 @@ def html_repair_request(request, html):
             keys=request.get('editable_segment_ids') or [item['id'] for item in bundle['segments']]
             return {**frozen,'film_revision_source':bundle,'editable_segment_ids':keys,
                     'instruction':request.get('instruction','')+'；仅修复运行错误，保留共享素材、讲稿和时间轴，不得修改未选择片段。'}
+        # The renderer identifies this exact adjacent seam. Match the incoming
+        # module to the frozen outgoing frame without asking for a whole film.
+        import re
+        seam=re.match(r'^连续场景 ([A-Za-z0-9_-]{1,64}) → ([A-Za-z0-9_-]{1,64}) 边界画面不一致（',feedback)
+        if seam and any(t['from_id']==seam[1] and t['to_id']==seam[2] and t.get('mode')=='continuous' for t in bundle['transitions']):
+            return {**frozen,'film_revision_source':bundle,'editable_segment_ids':[seam[2]],
+                    'instruction':request.get('instruction','')+'；仅修复目标片段及相邻连接，开头逐像素匹配前段结束状态，保留共享代码、其他片段、讲稿和时间轴；变化放到段内，不能淡化隐藏跳变。'}
         return {**frozen,'previous_film_bundle':bundle,
                 'instruction':request.get('instruction','')+'；仅修复运行错误，保留已生成的影片设计、讲稿和时间轴；必要时可修正共享画面代码。'}
     from .sprite_assets import model_source
@@ -387,10 +394,10 @@ async def execute_direct_job(db,job,settings):
                             request['film_revision_source']=module_bundle
                 await p.guard(db,job_id,token,job.project_id,job.expected_revision)
                 repairs+=1
-                source={**source,'repair_job_id':str(job_id),'repair_attempts':repairs}
+                source={**source,'repair_job_id':str(job_id),'repair_attempts':repairs,'last_runtime_error':str(error)[:500]}
                 version=await db.get(VideoVersion,version_id,populate_existing=True)
                 version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
-                raw=await generate_html(writer,html_repair_request(request,raw),http,feedback=str(error))
+                raw=await generate_html(writer,html_repair_request(request,raw,feedback=str(error)),http,feedback=str(error))
                 key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
                 repaired_bundle=extract_film(raw)
                 module_key,module_hash=await publish('film_modules',json.dumps(repaired_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
