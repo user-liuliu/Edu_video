@@ -64,11 +64,51 @@ async def check_syntax(html):
         finally:await browser.close()
 
 
+async def check_visible_frames(request):
+    """Reject fully blank scene layers; captions cannot count as scene content."""
+    import io
+    import numpy as np
+    from PIL import Image
+    from .direct_render import film_page, inspect
+    async with film_page(request) as (page, errors):
+        frame=page.frames[1]
+        timeline=await frame.evaluate("""()=>{const el=document.getElementById('edu-film-timeline');
+            return el?JSON.parse(el.textContent):null;}""")
+        ranges=timeline or [{'id':'film','start':0.,'end':request.manifest['duration']}]
+        for item in ranges:
+            visible=False
+            for fraction in (.5,.25,.75):
+                t=item['start']+(item['end']-item['start'])*fraction
+                if timeline:
+                    await frame.evaluate('(t)=>window.renderFrame(t)',t)
+                else:
+                    await inspect(page,t)
+                data=await page.locator('#film').screenshot(type='png',animations='allow')
+                image=Image.open(io.BytesIO(data)).convert('RGB')
+                # Scene canvas is always 1280x720; the bottom is reserved for captions.
+                image=image.crop((0,0,image.width,round(image.height*625/720)))
+                rgb=np.asarray(image.resize((640,312))).astype('int16')
+                background=np.median(rgb.reshape(-1,3),axis=0)
+                detail=(np.abs(rgb-background).max(axis=2)>18).mean()
+                if detail>.0001:
+                    visible=True
+                    break
+            if not visible:
+                raise DirectHtmlRuntimeError(
+                    f"片段 {item['id']} 画面为空或画面被遮挡；请检查背景与 Canvas/SVG 的层级，"
+                    '保证实际绘图在背景之上。背景请使用容器背景或明确的底层，绘图层正确定位；字幕不算可见画面。')
+        if errors:
+            raise DirectHtmlRuntimeError('整片动画运行失败')
+
+
 async def validate_direct(request):
     await check_syntax(request.html)
-    return await _validate_direct(request)
+    result=await _validate_direct(request)
+    await check_visible_frames(request)
+    return result
 
 
 async def render_direct(request, output):
     await check_syntax(request.html)
+    await check_visible_frames(request)
     return await _render_direct(request,output)

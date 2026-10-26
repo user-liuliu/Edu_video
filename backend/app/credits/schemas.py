@@ -7,6 +7,7 @@ class BalanceOut(BaseModel):
     reserved: int
     available: int
     video_cost: int = 10
+    ppt_cost: int = 10
     total_credited: int
     total_spent: int
 

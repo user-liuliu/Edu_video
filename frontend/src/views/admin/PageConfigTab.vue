@@ -168,7 +168,7 @@ const NUMBER_PARAMS: { key: NumberParam; label: string; min: number; max: number
       <div class="block-head">
         <div>
           <h3 id="fields-title">新建视频页面选项</h3>
-          <p class="ev-muted desc">控制老师在"新建视频"页面能看到哪些选项。隐藏的选项老师看不到，系统直接用默认值。</p>
+          <p class="ev-muted desc">控制老师在"新建视频"页面能看到哪些选项；联网搜索的显示与默认值同时适用于 PPT。隐藏的选项老师看不到，系统直接用默认值。</p>
         </div>
         <el-button type="primary" :loading="savingFields" :disabled="savingFields" @click="saveFields">保存</el-button>
       </div>

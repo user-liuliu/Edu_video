@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+from time import monotonic as batch_clock
 from sqlalchemy import select
 import httpx
 from app.models import VideoVersion,VideoSegment
@@ -10,11 +11,18 @@ from app.model_configs import resolve
 from app.purposes import Purpose
 from app.jobs.service import update_job_progress
 from .cache import cache_fingerprint
-from .direct_html import generate_html,seal_html,align_clock,join_audio,direct_digest,DIRECT_PROTOCOL
+from .direct_html import generate_html as _generate_html,seal_html,align_clock,join_audio,direct_digest,DIRECT_PROTOCOL
 from .film_modules import FILM_MODULE_PROTOCOL,extract_film
 from .media_assets import read_asset,dimensions,align_audio
 from .timing import estimated_cues,spoken
 from .skill_guidance import animation_guidance,animation_reference_documents,bundle_metadata
+
+
+async def generate_html(config, request, http, **options):
+    if any(key in options for key in ('checkpoint','save_checkpoint','max_modules')):
+        from .film_modules import generate_film
+        return await generate_film(config,request,http,**options)
+    return await _generate_html(config,request,http,**options)
 
 
 def html_generation_request(snapshot,targets,duration):
@@ -80,6 +88,8 @@ def html_repair_request(request, html):
 async def execute_direct_job(db,job,settings):
     from . import pipeline as p
     from .expression import prepare_expression
+    from app.jobs.continuation import ContinueJob
+    batch_started=batch_clock()
     version=await db.scalar(select(VideoVersion).where(VideoVersion.job_id==job.id))
     version_id=version.id;job_id=job.id;token=job.lease_token
     box=SecretBox(settings.master_key)
@@ -118,10 +128,15 @@ async def execute_direct_job(db,job,settings):
         try:return await read_asset(storage,segment.assets[name],segment.assets['hashes'][name],name)
         except (KeyError,ValueError,OSError):return None
     async with httpx.AsyncClient(follow_redirects=False) as http:
+        expression_created=bool(version.snapshot.get('expression_protocol') and version.snapshot.get('film_expression') is None)
         snapshot=await prepare_expression(db,job,version,segments,writer,http)
+        if expression_created and batch_clock()-batch_started>=300:
+            await guard()
+            raise ContinueJob('整片讲稿已保存，等待继续生成动画')
         size=dimensions(snapshot);runtime=direct_digest();renderer=p.RendererClient(settings,http)
         source=snapshot.get('direct_source')
         raw=None;module_bundle=None;targets=None
+        source_created=False
         if source:
             try:
                 raw=(await read_asset(storage,source['key'],source['hash'],'raw_html')).decode()
@@ -162,6 +177,7 @@ async def execute_direct_job(db,job,settings):
                            instruction=job.payload.get('instruction',''))
             await update_job_progress(db,job_id,token,12,'正在修改所选画面并衔接相邻片段')
             await guard();raw=await generate_html(writer,request,http)
+            source_created=True
             module_bundle=extract_film(raw)
             module_key,module_hash=await publish('film_modules',json.dumps(module_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
             key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
@@ -185,8 +201,32 @@ async def execute_direct_job(db,job,settings):
                 segment.assets={**segment.assets,'visual_instruction':local};offset+=duration
             if offset>7200:raise ValueError('视频总时长超过限制')
             request=html_generation_request(snapshot,targets,offset)
-            await update_job_progress(db,job_id,token,12,'正在生成整片HTML动画与自然转场')
-            await guard();raw=await generate_html(writer,request,http)
+            from .film_checkpoints import FilmCheckpoints,generation_fingerprint,BATCH_MODULES
+            from .film_modules import FilmBatchPending
+            from app.jobs.continuation import ContinueJob
+            async def persist_checkpoint(index):
+                # Hold the lease/project locks through the index commit.
+                await p.guard(db,job_id,token,job.project_id,job.expected_revision)
+                current=await db.get(VideoVersion,version_id,populate_existing=True)
+                current.snapshot={**current.snapshot,'animation_checkpoint':index}
+                await db.commit()
+                if index:
+                    completed=len(index['parts']);total=index['total']
+                    await update_job_progress(db,job_id,token,12+int(30*completed/total),
+                        f'动画已完成 {completed}/{total} 段'+(f'，继续第 {completed+1} 段' if completed<total else ''))
+            checkpoints=FilmCheckpoints(storage,request,
+                generation_fingerprint(request,snapshot['models']['writer'],runtime),
+                snapshot.get('animation_checkpoint'),publish,persist_checkpoint)
+            prefix=await checkpoints.restore()
+            await update_job_progress(db,job_id,token,12,'正在恢复已保存动画片段' if prefix else '正在生成整片HTML动画与自然转场')
+            await guard()
+            try:
+                raw=await generate_html(writer,request,http,checkpoint=prefix,
+                    save_checkpoint=checkpoints.save,max_modules=BATCH_MODULES)
+                source_created=True
+            except FilmBatchPending as pending:
+                await guard()
+                raise ContinueJob(f'动画已完成 {pending.completed}/{pending.total} 段，等待继续第 {pending.completed+1} 段') from None
             module_bundle=extract_film(raw)
             module_key,module_hash=await publish('film_modules',json.dumps(module_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
             key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
@@ -194,6 +234,9 @@ async def execute_direct_job(db,job,settings):
                     'module_key':module_key,'module_hash':module_hash,'module_protocol':FILM_MODULE_PROTOCOL}
             version=await db.get(VideoVersion,version_id,populate_existing=True)
             version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+        if source_created and batch_clock()-batch_started>=300:
+            await guard()
+            raise ContinueJob('动画已保存，等待继续制作配音')
         audio_parts=[];captions=[];clock=[];elapsed=0.
         for index,segment in enumerate(segments):
             target=source['segments'][index]
@@ -203,7 +246,8 @@ async def execute_direct_job(db,job,settings):
             audio_fp=cache_fingerprint({'narration':segment.narration,'voice':snapshot['voice'],'tts':snapshot['models']['tts'],'protocol':p.NARRATION_PROTOCOL_VERSION,'frame_alignment':1,**({'instruction':instruction} if instruction else {})})
             audio=await cached(segment,'audio',audio_fp);caption_data=await cached(segment,'captions',audio_fp)
             await update_job_progress(db,job_id,token,45+int(index/len(segments)*36),f'正在制作配音并校时（{index+1}/{len(segments)}）')
-            if audio is None or caption_data is None:
+            audio_created=audio is None or caption_data is None
+            if audio_created:
                 await guard()
                 narration=await p.synthesize_narration(tts,segment.narration,http,speaker=snapshot['voice'],**({'instruction':instruction} if instruction else {}))
                 audio=align_audio(narration.audio);caption_data=json.dumps(narration.captions,ensure_ascii=False).encode()
@@ -219,19 +263,24 @@ async def execute_direct_job(db,job,settings):
             captions.extend({**c,'start':c['start']+elapsed,'end':c['end']+elapsed} for c in local_captions)
             audio_parts.append(audio);segment.start=elapsed;elapsed+=duration;segment.end=elapsed
             segment.assets={**segment.assets,'audio_instruction':instruction};await db.commit()
+            if audio_created and batch_clock()-batch_started>=300:
+                await guard()
+                raise ContinueJob(f'配音已完成 {index+1}/{len(segments)} 段，等待继续校时与播放检查')
         if elapsed>7200:raise ValueError('视频总时长超过限制')
         manifest={'duration':elapsed,'source_duration':source['duration'],'clock':clock,'captions':captions}
         audio=join_audio(audio_parts)
         await update_job_progress(db,job_id,token,87,'正在检查整片HTML播放与时间轴')
         from .render_contract import DirectHtmlRuntimeError
-        for attempt in range(min(2,snapshot['params']['max_retries'])+1):
+        repair_limit=min(2,snapshot['params']['max_retries'])
+        repairs=source.get('repair_attempts',0) if source.get('repair_job_id')==str(job_id) else 0
+        while True:
             try:
                 await guard();await renderer.direct(raw,manifest,audio,size,validate=True)
                 break
             except DirectHtmlRuntimeError as error:
                 if job.payload.get('mode')=='voice':
                     raise DirectHtmlRuntimeError('配音校时后原画面运行检查未通过，已保留原画面；请先修改对应画面或重新生成完整预览') from error
-                if attempt>=min(2,snapshot['params']['max_retries']):raise
+                if repairs>=repair_limit:raise
                 # Repair executable code only. Preserve the frozen script, cues
                 # and accepted audio; this is not a video content review.
                 await update_job_progress(db,job_id,token,88,'正在修复动画播放代码（保留讲稿与配音）')
@@ -244,13 +293,21 @@ async def execute_direct_job(db,job,settings):
                         request['instruction']=job.payload.get('instruction','')
                         if source.get('revision_applied'):
                             request['film_revision_source']=module_bundle
-                await guard();raw=await generate_html(writer,html_repair_request(request,raw),http,feedback=str(error))
+                await p.guard(db,job_id,token,job.project_id,job.expected_revision)
+                repairs+=1
+                source={**source,'repair_job_id':str(job_id),'repair_attempts':repairs}
+                version=await db.get(VideoVersion,version_id,populate_existing=True)
+                version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+                raw=await generate_html(writer,html_repair_request(request,raw),http,feedback=str(error))
                 key,digest=await publish('raw_html',raw.encode(),'text/html; charset=utf-8')
                 repaired_bundle=extract_film(raw)
                 module_key,module_hash=await publish('film_modules',json.dumps(repaired_bundle,ensure_ascii=False,separators=(',',':')).encode(),'application/json')
                 source={**source,'key':key,'hash':digest,'module_key':module_key,'module_hash':module_hash}
                 version=await db.get(VideoVersion,version_id,populate_existing=True)
                 version.snapshot={**version.snapshot,'direct_source':source};await db.commit()
+                if batch_clock()-batch_started>=300:
+                    await guard()
+                    raise ContinueJob('动画修复结果已保存，等待继续播放检查')
         html=seal_html(raw,manifest,size).encode()
         html_key,html_hash=await publish('html',html,'text/html; charset=utf-8')
         audio_key,audio_hash=await publish('whole_audio',audio,'audio/wav')

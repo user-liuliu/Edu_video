@@ -71,7 +71,7 @@ async def test_first_generation_runtime_repair_can_return_and_validate_full_bund
     repaired={**original,'shared_code':'return {table: makeTable(), repaired: true};'}
     calls=[]
 
-    async def respond(http,url,headers,payload):
+    async def respond(http,url,headers,payload,**kwargs):
         calls.append(payload)
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(repaired)}}]})
 
@@ -107,7 +107,7 @@ async def test_generation_rejects_dissolve_between_segments_of_same_scene(monkey
     valid=deepcopy(invalid)
     for transition in valid['transitions']:transition['mode']='continuous'
     responses=iter([invalid,valid]);calls=[]
-    async def respond(http,url,headers,payload):
+    async def respond(http,url,headers,payload,**kwargs):
         calls.append(payload)
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(next(responses))}}]})
     monkeypatch.setattr('app.videos.model_stream.animation_response',respond)

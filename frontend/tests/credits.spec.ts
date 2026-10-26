@@ -5,7 +5,7 @@ import {createMemoryHistory,createRouter} from 'vue-router'
 import {beforeEach,afterEach,expect,test,vi} from 'vitest'
 
 let wrappers:VueWrapper[]=[]
-let balance={balance:120,reserved:10,available:110,video_cost:10,total_credited:130,total_spent:10}
+let balance={balance:120,reserved:10,available:110,video_cost:10,ppt_cost:10,total_credited:130,total_spent:10}
 let failBalance=false,failRedeem=false,failRecords=false
 let requests:{url:string;method:string;body:any}[]=[]
 let entries:any[]=[]
@@ -13,7 +13,7 @@ let codes:any[]=[]
 const issued={id:'c1',user_id:'u1',amount:200,suffix:'ABCD',status:'available',created_at:'2026-10-22T08:00:00Z',expires_at:'2026-11-21T08:00:00Z',redeemed_at:null,code:'EDU-ABCDEF-GHJKLM-NPQRST-UVWXYZ'}
 beforeEach(()=>{
  setActivePinia(createPinia());requests=[];entries=[];codes=[];failBalance=false;failRedeem=false;failRecords=false
- balance={balance:120,reserved:10,available:110,video_cost:10,total_credited:130,total_spent:10}
+ balance={balance:120,reserved:10,available:110,video_cost:10,ppt_cost:10,total_credited:130,total_spent:10}
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   const method=init?.method??'GET',body=init?.body?JSON.parse(String(init.body)):null;requests.push({url,method,body})
   if(url==='/api/account/credits/redeem'){
@@ -78,4 +78,13 @@ test('sidebar balance refreshes after redemption and remains the selected entry'
  expect(w.attributes('aria-label')).toContain('210')
  failBalance=true;notifyCreditsChanged();await flushPromises()
  expect(w.text()).toContain('点击查看余额');expect(w.find('.wallet-points').exists()).toBe(false)
+})
+
+
+test('balance page explains PPT pricing and labels PPT spending separately',async()=>{
+ entries=[{id:'ppt1',kind:'ppt_generation',description:'PPT 生成 · 植物',amount:-10,balance_after:110,created_at:'2026-10-25T10:00:00Z'}] as typeof entries
+ const w=await balancePage()
+ expect(w.text()).toContain('PPT')
+ expect(w.text()).toContain('PPT 生成')
+ expect(w.text()).toContain('手动编辑')
 })

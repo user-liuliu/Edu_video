@@ -22,6 +22,8 @@ class SetRoleRequest(BaseModel):
 
 class AdminUserOut(UserSummary):
     video_count: int = 0
+    ppt_count: int = 0
+    project_count: int = 0
 
 
 class UserListOut(BaseModel):

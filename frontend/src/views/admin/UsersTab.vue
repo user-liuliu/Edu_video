@@ -288,7 +288,7 @@ function onPasswordClosed() {
             <th scope="col">角色</th>
             <th scope="col">状态</th>
             <th scope="col">注册时间</th>
-            <th scope="col">视频项目数</th>
+            <th scope="col" title="视频项目与 PPT 项目合计，包含草稿；历史版本不重复计数">项目总数</th>
             <th scope="col">操作</th>
           </tr>
         </thead>
@@ -298,7 +298,7 @@ function onPasswordClosed() {
             <td>{{ ROLE_TEXT[u.role] }}</td>
             <td><span :class="['status', `status-${u.status}`]">{{ STATUS_TEXT[u.status] }}</span></td>
             <td class="time">{{ formatTime(u.created_at) }}</td>
-            <td>{{ u.video_count ?? 0 }}</td>
+            <td class="project-count" data-testid="user-project-count"><strong>{{ u.project_count ?? (u.video_count ?? 0) + (u.ppt_count ?? 0) }}</strong><span>视频 {{ u.video_count ?? 0 }} · PPT {{ u.ppt_count ?? 0 }}</span></td>
             <td class="actions">
               <el-button v-if="u.status === 'active'" size="small" @click="creditUser = u">积分兑换码</el-button>
               <el-button
@@ -395,6 +395,21 @@ function onPasswordClosed() {
 .username {
   max-width: 240px;
   overflow-wrap: anywhere;
+}
+
+.project-count {
+  white-space: nowrap;
+}
+.project-count strong {
+  display: block;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.project-count span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ev-color-muted);
 }
 
 .time {

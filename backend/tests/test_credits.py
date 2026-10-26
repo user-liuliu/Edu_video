@@ -19,7 +19,7 @@ async def teacher_id(client):
 async def test_new_account_zero_balance_and_empty_ledger(teacher_client):
  r=await teacher_client.get('/api/account/credits')
  assert r.status_code==200,r.text
- assert r.json()=={'balance':0,'reserved':0,'available':0,'video_cost':10,'total_credited':0,'total_spent':0}
+ assert r.json()=={'balance':0,'reserved':0,'available':0,'video_cost':10,'ppt_cost':10,'total_credited':0,'total_spent':0}
  records=await teacher_client.get('/api/account/credits/transactions')
  assert records.status_code==200 and records.json()=={'items':[],'total':0}
 

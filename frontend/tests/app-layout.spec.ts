@@ -1,4 +1,7 @@
 import { mount } from '@vue/test-utils'
+import creditBalanceSource from '../src/components/CreditBalanceLink.vue?raw'
+import { compileStyle, parse } from '@vue/compiler-sfc'
+import CreditBalanceLink from '../src/components/CreditBalanceLink.vue'
 import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -71,7 +74,7 @@ test('header shows brand, username, logout and landmarks', async () => {
   expect(w.find('header').text()).toContain('教学视频助手')
   expect(w.find('nav').text()).toContain('王老师')
   expect(w.find('nav').text()).toContain('退出')
-  expect(w.find('[aria-label="教师导航"]').text()).toContain('视频制作')
+  expect(w.find('[aria-label="教师导航"]').text()).toContain('工作台')
   expect(w.find('[aria-label="教师导航"]').text()).toContain('草稿箱')
   expect(w.find('[aria-label="教师导航"]').text()).toContain('账户设置')
   expect(w.find('[aria-label="教师导航"]').text()).not.toContain('我的偏好')
@@ -99,14 +102,59 @@ test('sidebar can collapse and expand while all navigation links remain accessib
   expect(w.get('.app-shell').classes()).not.toContain('rail-collapsed')
 })
 
+test('compiled balance styles keep the page visible when the sidebar collapses', async () => {
+  const { descriptor } = parse(creditBalanceSource)
+  const scopeId = (CreditBalanceLink as typeof CreditBalanceLink & { __scopeId: string }).__scopeId
+  const compiled = compileStyle({ source: descriptor.styles[0]!.content, filename: 'CreditBalanceLink.vue', id: scopeId, scoped: true })
+  expect(compiled.errors).toEqual([])
+  const scopedStyle = document.createElement('style')
+  scopedStyle.textContent = compiled.code
+  document.head.append(scopedStyle)
+  // JSDOM does not evaluate viewport media queries; activate the actual desktop rules.
+  const desktopStyle = document.createElement('style')
+  desktopStyle.textContent = Array.from(scopedStyle.sheet!.cssRules)
+    .filter(rule => rule.type === 4 && (rule as CSSMediaRule).conditionText === '(min-width:901px)')
+    .flatMap(rule => Array.from((rule as CSSMediaRule).cssRules).map(child => child.cssText)).join('\n')
+  expect(desktopStyle.textContent).not.toBe('')
+  document.head.append(desktopStyle)
+  const w = await mountAs('teacher', '/projects')
+  document.body.append(w.element)
+  try {
+    const shell = w.get('.app-shell').element
+    const wallet = w.get('.wallet-content').element
+    expect(getComputedStyle(shell).display).not.toBe('none')
+    await w.get('button[aria-label="收起侧边栏"]').trigger('click')
+    expect(getComputedStyle(shell).display).not.toBe('none')
+    expect(getComputedStyle(wallet).display).toBe('none')
+    expect(getComputedStyle(w.get('.balance-link').element).display).toBe('flex')
+    expect(w.findAll('.rail-link')).toHaveLength(4)
+    await w.get('button[aria-label="展开侧边栏"]').trigger('click')
+    expect(getComputedStyle(shell).display).not.toBe('none')
+    expect(getComputedStyle(wallet).display).not.toBe('none')
+  } finally {
+    scopedStyle.remove()
+    desktopStyle.remove()
+    w.element.remove()
+  }
+})
+
 test('light rail has decorative icons with readable links and no duplicate new entry', async () => {
   const w=await mountAs('teacher', '/projects/new')
   const links=w.findAll('.rail-link')
   expect(links).toHaveLength(4)
   expect(links.every(link=>link.find('svg[aria-hidden="true"]').exists())).toBe(true)
-  expect(links.find(link=>link.text()==='视频制作')?.attributes('aria-current')).toBe('page')
+  expect(links.find(link=>link.text()==='工作台')?.attributes('aria-current')).toBe('page')
   expect(w.find('.skip-link[href="#main-content"]').exists()).toBe(true)
   expect(w.find('aside').text()).not.toContain('新建视频')
+})
+
+test('teacher rail names the workbench and works with dedicated icons', async () => {
+  const w = await mountAs('teacher', '/projects/new')
+  const links = w.findAll('.rail-link')
+  expect(links[0]!.text()).toBe('工作台')
+  expect(links[1]!.text()).toBe('我的作品')
+  expect(links[0]!.find('path').attributes('d')).toBe('M3 3h7v7H3ZM14 3h7v7h-7ZM3 14h7v7H3Zm11 0h7v7h-7Z')
+  expect(links[1]!.find('path').attributes('d')).toBe('M3 5h18v14H3ZM3 16l5-5 4 4 3-3 6 6M8 8h.01')
 })
 
 test('header uses the sticky navigation variant', async () => {
@@ -300,4 +348,30 @@ test('preview and export completions join the same ordered reminder queue',async
  expect(completionReminders()[0]?.textContent).toContain('函数的动画预览已就绪')
  await vi.advanceTimersByTimeAsync(3000);await flushPromises()
  expect(completionReminders()[0]?.textContent).toContain('函数的MP4已导出完成')
+})
+
+
+test.each([
+ ['outline','植物的 PPT 大纲已生成'],
+ ['render','植物的 PPT 已生成，可以预览和下载'],
+ ['revise','植物的 PPT 页面已更新'],
+])('PPT %s completion reminds once without navigating to works',async(kind,message)=>{
+ vi.useFakeTimers()
+ sessionStorage.setItem('edu-video:outline-job-notification',JSON.stringify([{jobId:'ppt-j1',projectId:'ppt-p1',target:'ppt'}]))
+ let completed=false
+ const fetcher=vi.fn(async(url:string)=>{
+  if(url==='/api/presentations/jobs/ppt-j1')return new Response(JSON.stringify({id:'ppt-j1',project_id:'ppt-p1',kind,status:completed?'succeeded':'running',updated_at:'2026-10-25T00:00:00Z'}))
+  if(url==='/api/presentations/ppt-p1')return new Response(JSON.stringify({id:'ppt-p1',title:'植物'}))
+  throw new Error('Unexpected notification endpoint: '+url)
+ })
+ vi.stubGlobal('fetch',fetcher)
+ const wrapper=await mountAs('teacher','/projects/new');await flushPromises()
+ expect(completionReminders()).toHaveLength(0)
+ await wrapper.vm.$router.push('/drafts')
+ completed=true;await vi.advanceTimersByTimeAsync(1000);await flushPromises()
+ expect(completionReminders()[0]?.textContent).toContain(message)
+ expect(wrapper.vm.$router.currentRoute.value.path).toBe('/drafts')
+ await vi.advanceTimersByTimeAsync(3000);await flushPromises()
+ expect(completionReminders()).toHaveLength(0)
+ expect(sessionStorage.getItem('edu-video:outline-job-notification')).toBeNull()
 })

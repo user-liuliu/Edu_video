@@ -220,7 +220,7 @@ function field(w: Scope, label: string) {
 test('users: action buttons by status', async () => {
   const w = await mountTab(UsersTab)
   expect(m.listUsers).toHaveBeenCalledWith({ page: 1, page_size: 20 })
-  expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用户名', '角色', '状态', '注册时间', '视频项目数', '操作'])
+  expect(w.findAll('thead th').map((th) => th.text())).toEqual(['用户名', '角色', '状态', '注册时间', '项目总数', '操作'])
 
   expect(buttons(row(w, '张老师'))).toEqual(['通过', '拒绝'])
   expect(row(w, '张老师').text()).toContain('待审核')
@@ -511,4 +511,18 @@ test('model config: web_search can test the configured Tavily service', async ()
   expect(m.testModelConfig).toHaveBeenCalledWith('outline_llm')
   expect(messageSuccess).toHaveBeenCalledWith('连接正常')
   expect(m.listModelConfigs).toHaveBeenCalledTimes(3)
+})
+
+
+test('users: project total shows video and PPT breakdown in the original count column',async()=>{
+ const items=users().map(u=>({...u,video_count:u.id==='u2'?2:0,ppt_count:u.id==='u2'?3:0,project_count:u.id==='u2'?5:0}))
+ m.listUsers.mockResolvedValue({items,total:items.length})
+ const w=await mountTab(UsersTab)
+ expect(w.findAll('thead th').map(th=>th.text())).toContain('项目总数')
+ const cell=row(w,'李老师').get('[data-testid="user-project-count"]')
+ expect(cell.get('strong').text()).toBe('5')
+ expect(cell.text()).toContain('视频 2')
+ expect(cell.text()).toContain('PPT 3')
+ expect(row(w,'张老师').get('[data-testid="user-project-count"] strong').text()).toBe('0')
+ expect(w.text()).not.toContain('视频项目数')
 })

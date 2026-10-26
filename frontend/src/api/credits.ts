@@ -1,6 +1,6 @@
 import {request} from './http'
-export type CreditBalance={balance:number;reserved:number;available:number;video_cost:number;total_credited:number;total_spent:number}
-export type CreditTransaction={id:string;kind:'redemption'|'video_generation';description:string;amount:number;balance_after:number;created_at:string}
+export type CreditBalance={balance:number;reserved:number;available:number;video_cost:number;ppt_cost:number;total_credited:number;total_spent:number}
+export type CreditTransaction={id:string;kind:'redemption'|'video_generation'|'ppt_generation';description:string;amount:number;balance_after:number;created_at:string}
 export type CreditCode={id:string;user_id:string;amount:number;suffix:string;status:'available'|'redeemed'|'revoked'|'expired';created_at:string;expires_at:string;redeemed_at:string|null}
 export type IssuedCode=CreditCode&{code:string}
 export const getCreditBalance=()=>request<CreditBalance>('GET','/api/account/credits')

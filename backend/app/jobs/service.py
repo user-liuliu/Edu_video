@@ -47,7 +47,12 @@ async def count_active_generation_jobs(db, owner_id, now=None, exclude_job_id: U
         conditions.append(OutlineJob.id != exclude_job_id)
     if now is not None:
         conditions.append((OutlineJob.status != 'running') | (OutlineJob.lease_until.is_(None)) | (OutlineJob.lease_until > now))
-    return int(await db.scalar(select(func.count()).select_from(OutlineJob).where(*conditions)) or 0)
+    from app.presentations.models import PptJob
+    ppt_conditions = [PptJob.owner_id == owner_id, PptJob.status.in_(['pending', 'running'])]
+    if running_only: ppt_conditions.append(PptJob.status == 'running')
+    if exclude_job_id is not None: ppt_conditions.append(PptJob.id != exclude_job_id)
+    if now is not None: ppt_conditions.append((PptJob.status != 'running') | (PptJob.lease_until.is_(None)) | (PptJob.lease_until > now))
+    return int(await db.scalar(select(func.count()).select_from(OutlineJob).where(*conditions)) or 0) + int(await db.scalar(select(func.count()).select_from(PptJob).where(*ppt_conditions)) or 0)
 
 
 async def require_generation_capacity(db, owner_id, max_jobs):

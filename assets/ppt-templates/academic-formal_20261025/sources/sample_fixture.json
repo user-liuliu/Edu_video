@@ -1,0 +1,238 @@
+{
+  "topic": "初三数学：二次函数",
+  "slides": [
+    {
+      "file": "01_cover.svg",
+      "layout": "cover",
+      "name": "课程封面",
+      "sample": {
+        "EYEBROW": "生活里的数学 · 第 01 课",
+        "TITLE_1": "从一次投篮",
+        "TITLE_2": "认识二次函数",
+        "SUBTITLE_1": "看见抛物线，读懂它的变化。",
+        "SUBTITLE_2": "连接生活情境与函数表达。",
+        "AUTHOR": "初三数学  /  课堂导入",
+        "CAPTION": "从熟悉的轨迹，走进新的知识",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "01"
+      },
+      "markers": [
+        "{{EYEBROW}}",
+        "{{TITLE_1}}",
+        "{{TITLE_2}}",
+        "{{SUBTITLE_1}}",
+        "{{SUBTITLE_2}}",
+        "{{AUTHOR}}",
+        "{{CAPTION}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    },
+    {
+      "file": "02a_content_concept.svg",
+      "layout": "concept",
+      "name": "概念与公式",
+      "sample": {
+        "PAGE_TITLE": "二次函数，先看三个系数",
+        "FORMULA": "y = ax² + bx + c   (a ≠ 0)",
+        "PARAM_1": "a：看开口",
+        "EXPLAIN_1_1": "正负决定开口方向",
+        "EXPLAIN_1_2": "绝对值影响开口大小",
+        "EXPLAIN_1_3": "先判断，再画图",
+        "PARAM_2": "b：结合 a 看位置",
+        "EXPLAIN_2_1": "对称轴 x = −b / (2a)",
+        "EXPLAIN_2_2": "共同决定水平位置",
+        "EXPLAIN_2_3": "不要只看 b 的正负",
+        "PARAM_3": "c：看纵轴交点",
+        "EXPLAIN_3_1": "令 x = 0，得到 y = c",
+        "EXPLAIN_3_2": "与 y 轴交于 (0, c)",
+        "EXPLAIN_3_3": "用交点检查图像",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "02"
+      },
+      "markers": [
+        "{{PAGE_TITLE}}",
+        "{{FORMULA}}",
+        "{{PARAM_1}}",
+        "{{EXPLAIN_1_1}}",
+        "{{EXPLAIN_1_2}}",
+        "{{EXPLAIN_1_3}}",
+        "{{PARAM_2}}",
+        "{{EXPLAIN_2_1}}",
+        "{{EXPLAIN_2_2}}",
+        "{{EXPLAIN_2_3}}",
+        "{{PARAM_3}}",
+        "{{EXPLAIN_3_1}}",
+        "{{EXPLAIN_3_2}}",
+        "{{EXPLAIN_3_3}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    },
+    {
+      "file": "02b_content_image_text.svg",
+      "layout": "image-text",
+      "name": "图文讲解",
+      "sample": {
+        "PAGE_TITLE": "从投篮轨迹，读出图像信息",
+        "OBS_TITLE_1": "开口向下",
+        "OBS_BODY_1": "先升高、后降低，存在最高点",
+        "OBS_TITLE_2": "顶点是关键",
+        "OBS_BODY_2": "最高点为 (2, 4)，对称轴 x = 2",
+        "OBS_TITLE_3": "联系函数表达式",
+        "OBS_BODY_3": "用 y = −(x − 2)² + 4 描述示意轨迹",
+        "FIGURE_CAPTION": "示意模型，非实测数据；图像与公式相互验证",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "03"
+      },
+      "markers": [
+        "{{PAGE_TITLE}}",
+        "{{OBS_TITLE_1}}",
+        "{{OBS_BODY_1}}",
+        "{{OBS_TITLE_2}}",
+        "{{OBS_BODY_2}}",
+        "{{OBS_TITLE_3}}",
+        "{{OBS_BODY_3}}",
+        "{{FIGURE_CAPTION}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    },
+    {
+      "file": "02c_content_compare.svg",
+      "layout": "compare",
+      "name": "双栏对比",
+      "sample": {
+        "PAGE_TITLE": "同是抛物线，开口有什么不同？",
+        "LEFT_LABEL": "a > 0  ·  开口向上",
+        "RIGHT_LABEL": "a < 0  ·  开口向下",
+        "LEFT_DESCRIPTION": "顶点是最低点，函数有最小值",
+        "RIGHT_DESCRIPTION": "顶点是最高点，函数有最大值",
+        "CONCLUSION": "先判断 a 的正负，再判断顶点表示最大值还是最小值。",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "04"
+      },
+      "markers": [
+        "{{PAGE_TITLE}}",
+        "{{LEFT_LABEL}}",
+        "{{RIGHT_LABEL}}",
+        "{{LEFT_DESCRIPTION}}",
+        "{{RIGHT_DESCRIPTION}}",
+        "{{CONCLUSION}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    },
+    {
+      "file": "02d_content_process.svg",
+      "layout": "process",
+      "name": "方法与流程",
+      "sample": {
+        "PAGE_TITLE": "画一条抛物线，只需抓住三步",
+        "INTRO": "以 y = x² − 4x + 3 为例，把代数信息转成图像。",
+        "STEP_TITLE_1": "先找顶点",
+        "STEP_BODY_1_1": "配方为 (x − 2)² − 1",
+        "STEP_BODY_1_2": "顶点为 (2, −1)",
+        "STEP_BODY_1_3": "对称轴为 x = 2",
+        "STEP_TITLE_2": "再取关键点",
+        "STEP_BODY_2_1": "与 x 轴交于 (1, 0)、",
+        "STEP_BODY_2_2": "(3, 0)；再取 (0, 3)",
+        "STEP_BODY_2_3": "和对称点 (4, 3)",
+        "STEP_TITLE_3": "最后连线检查",
+        "STEP_BODY_3_1": "用平滑曲线连接各点",
+        "STEP_BODY_3_2": "检查开口向上、左右",
+        "STEP_BODY_3_3": "对称和交点位置",
+        "HINT": "课堂提醒：先标点，再连线；用对称性检查结果。",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "05"
+      },
+      "markers": [
+        "{{PAGE_TITLE}}",
+        "{{INTRO}}",
+        "{{STEP_TITLE_1}}",
+        "{{STEP_BODY_1_1}}",
+        "{{STEP_BODY_1_2}}",
+        "{{STEP_BODY_1_3}}",
+        "{{STEP_TITLE_2}}",
+        "{{STEP_BODY_2_1}}",
+        "{{STEP_BODY_2_2}}",
+        "{{STEP_BODY_2_3}}",
+        "{{STEP_TITLE_3}}",
+        "{{STEP_BODY_3_1}}",
+        "{{STEP_BODY_3_2}}",
+        "{{STEP_BODY_3_3}}",
+        "{{HINT}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    },
+    {
+      "file": "02e_content_practice.svg",
+      "layout": "practice",
+      "name": "课堂练习",
+      "sample": {
+        "PAGE_TITLE": "轮到你：用三个信息读懂图像",
+        "QUESTION_1": "已知二次函数 y = −x² + 4x，",
+        "QUESTION_2": "不画完整图像，先回答下面的问题。",
+        "TASK_1": "① 开口方向是什么？依据是什么？",
+        "TASK_2": "② 对称轴在哪里？顶点坐标是什么？",
+        "TASK_3": "③ 当 x = 0 和 x = 4 时，y 分别是多少？",
+        "HINT_TITLE": "思考提示",
+        "HINT_BODY_1": "先看 a 的正负。",
+        "HINT_BODY_2": "试着配方，找到",
+        "HINT_BODY_3": "顶点，再检查与",
+        "HINT_BODY_4": "x 轴的交点。",
+        "PRACTICE_FOOTER": "先独立思考，再交流理由。答案与解析可单独生成一页。",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "06"
+      },
+      "markers": [
+        "{{PAGE_TITLE}}",
+        "{{QUESTION_1}}",
+        "{{QUESTION_2}}",
+        "{{TASK_1}}",
+        "{{TASK_2}}",
+        "{{TASK_3}}",
+        "{{HINT_TITLE}}",
+        "{{HINT_BODY_1}}",
+        "{{HINT_BODY_2}}",
+        "{{HINT_BODY_3}}",
+        "{{HINT_BODY_4}}",
+        "{{PRACTICE_FOOTER}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    },
+    {
+      "file": "03_ending.svg",
+      "layout": "summary",
+      "name": "回顾与延伸",
+      "sample": {
+        "PAGE_TITLE": "把今天的知识，带回生活里",
+        "SUMMARY_LEAD": "用系数读图像，用图像理解变化。",
+        "TAKEAWAY_1": "看方向",
+        "TAKEAWAY_DETAIL_1": "a 的正负决定开口向上还是向下。",
+        "TAKEAWAY_2": "找关键点",
+        "TAKEAWAY_DETAIL_2": "顶点、对称轴和交点帮助我们理解图像。",
+        "TAKEAWAY_3": "连到真实情境",
+        "TAKEAWAY_DETAIL_3": "用函数模型描述变化，同时注意适用范围。",
+        "ENDING_QUESTION": "课后想一想：喷泉的水流，也能用抛物线近似描述吗？",
+        "COURSE_NAME": "初中数学 / 二次函数",
+        "PAGE_NUM": "07"
+      },
+      "markers": [
+        "{{PAGE_TITLE}}",
+        "{{SUMMARY_LEAD}}",
+        "{{TAKEAWAY_1}}",
+        "{{TAKEAWAY_DETAIL_1}}",
+        "{{TAKEAWAY_2}}",
+        "{{TAKEAWAY_DETAIL_2}}",
+        "{{TAKEAWAY_3}}",
+        "{{TAKEAWAY_DETAIL_3}}",
+        "{{ENDING_QUESTION}}",
+        "{{COURSE_NAME}}",
+        "{{PAGE_NUM}}"
+      ]
+    }
+  ]
+}

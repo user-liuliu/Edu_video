@@ -46,3 +46,26 @@ test('saving a selected preference sends its category and explicit choice',async
  const saved=calls.find(c=>c.init?.method==='POST')!
  expect(JSON.parse(String(saved.init?.body))).toEqual({category:'teaching',value:'多用生活实例'});w.unmount()
 })
+
+
+test('video works card downloads existing MP4 next to view without entering preview',async()=>{
+ const download='/api/projects/p2/videos/v2/media/final?download=1'
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({items:[{id:'p2',title:'已完成视频',prompt:'教学内容',status:'video_generating',download_url:download,updated_at:'2026-10-25T10:00:00Z'}],total:1}))))
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects',name:'project-list',component:ProjectListView},{path:'/drafts',name:'project-drafts',component:ProjectListView}]})
+ await router.push('/projects');const w=mount(ProjectListView,{global:{plugins:[router,ElementPlus],stubs:{ProjectCover:true}}});await flushPromises()
+ const actions=w.get('.project-open-actions')
+ expect(actions.text()).toContain('查看视频')
+ const link=actions.get('a.project-download')
+ expect(link.text()).toBe('下载 MP4');expect(link.attributes('href')).toBe(download)
+ expect(link.attributes('download')).toBeDefined()
+ await router.push('/drafts');await flushPromises()
+ expect(w.find('a.project-download').exists()).toBe(false)
+ w.unmount()
+})
+
+test('video without an exported MP4 has no card download action',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({items:[{id:'p2',title:'未导出',prompt:'教学内容',status:'preview_ready',download_url:null,updated_at:'2026-10-25T10:00:00Z'}],total:1}))))
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/projects',name:'project-list',component:ProjectListView}]})
+ await router.push('/projects');const w=mount(ProjectListView,{global:{plugins:[router,ElementPlus],stubs:{ProjectCover:true}}});await flushPromises()
+ expect(w.find('a.project-download').exists()).toBe(false);w.unmount()
+})

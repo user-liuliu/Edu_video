@@ -4,6 +4,7 @@ from copy import deepcopy
 from direct_determinism_checks import request
 from app.videos.film_modules import assemble_film,patch_film
 from app.videos.direct_render import film_page,inspect,pixels,same_pixels,check_page
+from app.videos.checked_render import validate_direct
 
 
 def fixture():
@@ -18,6 +19,31 @@ def fixture():
 
 
 class FilmModuleChecks(unittest.IsolatedAsyncioTestCase):
+    async def test_opaque_background_covering_drawn_canvas_is_rejected(self):
+        bundle,targets=fixture()
+        bundle['shared_html']='<style>.backdrop{position:absolute;inset:0;background:#f8fafb}canvas{display:block}</style><div class="backdrop"></div>'
+        for scene in bundle['segments']:
+            scene['html']='<canvas width="1280" height="720"></canvas>'
+            scene['code']="const ctx=root.querySelector('canvas').getContext('2d');ctx.fillStyle='#2563eb';ctx.fillRect(100,100,400,200);"
+        with self.assertRaisesRegex(ValueError,'画面为空|画面被遮挡'):
+            await validate_direct(request(assemble_film(bundle,targets),8.))
+
+    async def test_positioned_canvas_above_background_is_visible_and_accepted(self):
+        bundle,targets=fixture()
+        bundle['shared_html']='<style>.backdrop{position:absolute;inset:0;background:#f8fafb}canvas{position:relative;display:block}</style><div class="backdrop"></div>'
+        for scene in bundle['segments']:
+            scene['html']='<canvas width="1280" height="720"></canvas>'
+            scene['code']="const ctx=root.querySelector('canvas').getContext('2d');ctx.clearRect(0,0,1280,720);ctx.fillStyle='#2563eb';ctx.fillRect(100,100,400,200);"
+        self.assertEqual(await validate_direct(request(assemble_film(bundle,targets),8.)),{'validated':True})
+
+    async def test_only_middle_segment_hidden_by_background_is_rejected(self):
+        bundle,targets=fixture()
+        scene=bundle['segments'][1]
+        scene['html']='<div style="position:absolute;inset:0;background:white"></div><canvas width="1280" height="720"></canvas>'
+        scene['code']="const ctx=root.querySelector('canvas').getContext('2d');ctx.fillStyle='#2563eb';ctx.fillRect(100,100,400,200);"
+        with self.assertRaisesRegex(ValueError,'s1.*画面为空'):
+            await validate_direct(request(assemble_film(bundle,targets),8.))
+
     async def test_compiled_modules_play_and_seek_with_smooth_boundary_frames(self):
         bundle,targets=fixture()
         async with film_page(request(assemble_film(bundle,targets),8.)) as (page,errors):

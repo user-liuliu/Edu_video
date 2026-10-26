@@ -93,7 +93,7 @@ def _retry_delay(response, retry_index):
     return min(2 ** retry_index + random.uniform(0, 0.5), 30)
 
 
-async def chat_json(config, messages, retries=2, client=None, response_schema=None, *, request_retries=None, stream=False):
+async def chat_json(config, messages, retries=2, client=None, response_schema=None, *, request_retries=None, stream=False, stream_label='整片讲稿'):
     owned = client is None
     client = client or httpx.AsyncClient(follow_redirects=False)
     json_budget = max(0, min(retries, 5))
@@ -122,7 +122,7 @@ async def chat_json(config, messages, retries=2, client=None, response_schema=No
                     # shared retry budget across schema/JSON corrections.
                     from app.videos.model_stream import _animation_response_once
                     response = await _animation_response_once(client, url, headers,
-                        {**payload, 'stream': True}, label='整片讲稿')
+                        {**payload, 'stream': True}, label=stream_label)
                 else:
                     response = await client.post(url, headers=headers, json=payload, timeout=150)
             except ModelCallError as error:

@@ -3,11 +3,14 @@ import AppIcon from '../components/AppIcon.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import CreditBalanceLink from '../components/CreditBalanceLink.vue'
 import { ElMessage } from 'element-plus'
+import {notifyCreditsChanged} from '../api/credits'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../api/http'
 import { getJob, getOutline } from '../api/outline'
+import {getPpt,getPptJob} from '../api/presentations'
 import { useAuthStore } from '../stores/auth'
+import {clearCreationMemory,creationPath} from '../utils/creation-memory'
 import { clearAllVideoDraftCache } from '../utils/video-draft-cache'
 import { clearPendingOutlineNotifications, outlineNotificationEvent, readPendingOutlineNotifications, removePendingOutlineNotification } from '../utils/outline-job-notification'
 
@@ -16,13 +19,45 @@ const route = useRoute()
 const router = useRouter()
 const isAdmin = computed(() => auth.user?.role === 'admin')
 const railCollapsed = ref(false)
-const isCreationPage = computed(() => !isAdmin.value && ['project-create', 'project-edit'].includes(String(route.name)))
+const creationSession = ref(0)
+let startingNewCreation = false
+function creationMode(path: string) {
+  if (/^[/]projects[/](new|[^/]+[/]edit)$/.test(path)) return 'video' as const
+  if (/^[/]presentations[/](new|[^/]+[/]edit)$/.test(path)) return 'ppt' as const
+}
+function resetCreationSession() {
+  clearCreationMemory()
+  creationSession.value += 1
+}
+// Successful navigation runs before the old form unmounts. Its epoch prevents
+// the discarded form from writing stale values back into the next session.
+const removeCreationNavigation = router.afterEach((to, from, failure) => {
+  if (failure) return
+  const source = creationMode(from.path), target = creationMode(to.path)
+  const continuing = source && target && creationPath(target) === to.fullPath
+  if (startingNewCreation || ((source || target) && !continuing)) resetCreationSession()
+})
+async function startNewCreation(event: MouseEvent) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  if (startingNewCreation) return
+  startingNewCreation = true
+  try {
+    const failure = await router.push({name: 'project-create'})
+    // Re-entering /projects/new is a duplicate navigation; explicitly remount.
+    if (isNavigationFailure(failure, NavigationFailureType.duplicated)) resetCreationSession()
+  } finally {
+    startingNewCreation = false
+  }
+}
+
+const isCreationPage = computed(() => !isAdmin.value && ['project-create', 'project-edit', 'ppt-create', 'ppt-edit'].includes(String(route.name)))
 
 const teacherNav = [
-  { key: 'make', label: '视频制作' },
-  { key: 'videos', label: '我的视频' },
-  { key: 'drafts', label: '草稿箱' },
-  { key: 'account', label: '账户设置' },
+  { key: 'make', label: '工作台', icon: 'workbench' },
+  { key: 'videos', label: '我的作品', icon: 'works' },
+  { key: 'drafts', label: '草稿箱', icon: 'drafts' },
+  { key: 'account', label: '账户设置', icon: 'account' },
 ] as const
 
 const adminNav = [
@@ -75,19 +110,25 @@ async function pollOutlineNotification() {
   try {
     let shouldRetry = false
     const results = await Promise.all(pending.map(async item => {
-      try { return {item, job: await getJob(item.jobId)} }
+      try { return {item, job: await (item.target==='ppt'?getPptJob(item.jobId):getJob(item.jobId))} }
       catch { shouldRetry = true; return null }
     }))
     const ordered = results.filter((result): result is NonNullable<typeof result> => result !== null)
       .sort((a, b) => (Date.parse(a.job.updated_at ?? '') || 0) - (Date.parse(b.job.updated_at ?? '') || 0))
     for (const {item, job} of ordered) {
       try {
-        if (job.id !== item.jobId || !['generate','video','video_export'].includes(job.kind) || ['failed', 'cancelled'].includes(job.status)) {
+        if(item.target==='ppt'&&['render','revise'].includes(job.kind)&&['succeeded','failed','cancelled'].includes(job.status))notifyCreditsChanged()
+        if (job.id !== item.jobId || !(item.target==='ppt'?['outline','render','revise']:['generate','video','video_export']).includes(job.kind) || ['failed', 'cancelled'].includes(job.status)) {
           removePendingOutlineNotification(item.jobId)
         } else if (job.status === 'succeeded') {
-          const outline = await getOutline(item.projectId)
+          if(item.target==='ppt'){
+            const project=await getPpt(item.projectId)
+            outlineCompletionMessages.push(project.title+(job.kind==='outline'?'的 PPT 大纲已生成':job.kind==='revise'?'的 PPT 页面已更新':'的 PPT 已生成，可以预览和下载'))
+          }else{
+            const outline=await getOutline(item.projectId)
+            outlineCompletionMessages.push((outline.title??'项目')+(job.kind==='video_export'?'的MP4已导出完成':job.kind==='video'?('workflow' in job&&job.workflow==='html-preview-1'||outline.status==='preview_ready'?'的动画预览已就绪':'的视频已经生成完毕'):'的视频大纲已经生成完毕'))
+          }
           removePendingOutlineNotification(item.jobId)
-          outlineCompletionMessages.push((outline.title ?? '项目')+(job.kind==='video_export'?'的MP4已导出完成':job.kind==='video'?(job.workflow==='html-preview-1'||outline.status==='preview_ready'?'的动画预览已就绪':'的视频已经生成完毕'):'的视频大纲已经生成完毕'))
         } else {
           shouldRetry = true
         }
@@ -110,7 +151,7 @@ function handleOutlineNotificationPending() {
 }
 
 const activeTeacherKey = computed(() => {
-  if (['project-create', 'project-edit', 'project-outline', 'project-video'].includes(String(route.name))) return 'make'
+  if (['project-create', 'project-edit', 'project-outline', 'project-video', 'ppt-create', 'ppt-edit', 'ppt-outline', 'ppt-preview'].includes(String(route.name))) return 'make'
   if (route.name === 'project-drafts') return 'drafts'
   if (route.name === 'account-balance') return 'balance'
   if (route.name === 'account-settings') return 'account'
@@ -125,6 +166,7 @@ function teacherTarget(key:string) {
 }
 
 async function onLogout() {
+  clearCreationMemory()
   try {
     await auth.logout()
   } catch (e) {
@@ -143,6 +185,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  removeCreationNavigation()
   outlineNotificationDisposed = true
   clearTimeout(outlineNotificationTimer)
   outlineCompletionMessages = []
@@ -181,22 +224,19 @@ onBeforeUnmount(() => {
       </aside>
       <aside v-else id="app-sidebar" class="side-rail side-rail--sticky" aria-label="教师导航">
         <div class="rail-toolbar"><button type="button" class="rail-toggle" :aria-label="railCollapsed ? '展开侧边栏' : '收起侧边栏'" :title="railCollapsed ? '展开侧边栏' : '收起侧边栏'" :aria-expanded="!railCollapsed" aria-controls="app-sidebar" @click="railCollapsed = !railCollapsed"><AppIcon :name="railCollapsed ? 'chevrons-right' : 'chevrons-left'"/></button></div>
-        <RouterLink
-          v-for="item in teacherNav"
-          :key="item.key"
-          :title="item.label"
-          :to="teacherTarget(item.key)"
-          class="rail-link"
-          :class="{ active: activeTeacherKey === item.key }"
-          :aria-current="activeTeacherKey === item.key ? 'page' : undefined"
-        >
-          <AppIcon :name="item.key"/><span>{{ item.label }}</span>
+        <RouterLink v-for="item in teacherNav" :key="item.key" :to="teacherTarget(item.key)" custom v-slot="{href,navigate}">
+          <a :href="href" :title="item.label" class="rail-link"
+             :class="{ active: activeTeacherKey === item.key }"
+             :aria-current="activeTeacherKey === item.key ? 'page' : undefined"
+             @click="item.key === 'make' ? startNewCreation($event) : navigate($event)">
+            <AppIcon :name="item.icon"/><span>{{ item.label }}</span>
+          </a>
         </RouterLink>
         <CreditBalanceLink/>
       </aside>
 
       <main id="main-content" class="app-main">
-        <RouterView :key="route.path" />
+        <RouterView :key="`${route.path}:${creationSession}`" />
       </main>
     </div>
   </div>

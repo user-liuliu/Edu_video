@@ -35,6 +35,11 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       TEMP_DIR: /tmp
+      RENDERER_URL: http://renderer:8010
+      PPT_RENDERER_URL: http://ppt-renderer:8010
+    networks:
+      - default
+      - render_internal
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=0700,size=768m
     healthcheck:
@@ -85,6 +90,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       TEMP_DIR: /tmp
       RENDERER_URL: http://renderer:8010
+      PPT_RENDERER_URL: http://ppt-renderer:8010
     networks:
       - default
       - render_internal
@@ -96,13 +102,39 @@ services:
         condition: service_healthy
       renderer:
         condition: service_healthy
+      ppt-renderer:
+        condition: service_healthy
     restart: unless-stopped
 
   renderer:
     init: true
+    image: edu-video-renderer:latest
     build:
       context: .
       dockerfile: renderer/Dockerfile
+    environment:
+      HOME: /tmp
+    networks:
+      - render_internal
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    shm_size: 256m
+    tmpfs:
+      - /tmp:uid=10002,gid=10002,mode=0700,size=768m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ppt-renderer:
+    init: true
+    image: edu-video-renderer:latest
     environment:
       HOME: /tmp
     networks:

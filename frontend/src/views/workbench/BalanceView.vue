@@ -29,27 +29,27 @@ onBeforeUnmount(()=>{disposed=true;window.removeEventListener('focus',refreshOnF
     <div v-if="balanceError" class="balance-load-error" role="alert"><p>{{balanceError}}</p><el-button @click="loadBalance">重新加载</el-button></div>
     <template v-else-if="balance">
      <div class="available-value" data-testid="available-balance">{{formatPoints(balance.available)}}<span>积分</span></div>
-     <p class="creation-estimate">可支持约 <strong>{{formatPoints(Math.floor(balance.available / balance.video_cost))}}</strong> 次视频生成</p>
+     <p class="creation-estimate">可支持约 <strong>{{formatPoints(Math.floor(balance.available / balance.video_cost))}}</strong> 次视频或 PPT 生成</p>
      <div class="balance-breakdown"><div><span>账户总积分</span><strong>{{formatPoints(balance.balance)}}</strong></div><div><span>生成中预留</span><strong>{{formatPoints(balance.reserved)}}</strong></div></div>
     </template>
     <div v-else class="balance-skeleton" role="status">正在读取积分…</div>
-    <div class="balance-footnote"><AppIcon name="info"/><span>成功生成一次视频扣 {{balance?.video_cost ?? 10}} 积分，失败不收费。</span></div>
+    <div class="balance-footnote"><AppIcon name="info"/><span>成功生成视频或 PPT，每次扣 {{balance?.video_cost ?? 10}} 积分，失败不收费。</span></div>
    </article>
    <article class="redeem-card" aria-labelledby="redeem-heading">
     <div class="card-title"><span class="small-icon"><AppIcon name="ticket"/></span><div><h2 id="redeem-heading">兑换积分</h2><p>使用管理员为你生成的专属兑换码。</p></div></div>
     <form @submit.prevent="redeem"><label for="credit-code">积分兑换码</label><el-input id="credit-code" v-model="code" placeholder="输入或粘贴兑换码" maxlength="100" autocomplete="off" :disabled="redeeming" :aria-invalid="!!redeemError" :aria-describedby="redeemError?'redeem-error':'redeem-help'"/><p id="redeem-help" class="field-help">兑换后即时到账，每个兑换码仅能使用一次。</p><p v-if="redeemError" id="redeem-error" class="inline-error" role="alert">{{redeemError}}</p><p v-if="success" class="inline-success" role="status">{{success}}</p><el-button type="primary" native-type="submit" :loading="redeeming" :disabled="redeeming">兑换积分<AppIcon name="arrow"/></el-button></form>
    </article>
   </div>
-  <div v-if="balance" class="usage-summary"><span>累计兑换 <strong>{{formatPoints(balance.total_credited)}}</strong> 积分</span><span>累计消耗 <strong>{{formatPoints(balance.total_spent)}}</strong> 积分</span><span>导出已有视频不重复扣费</span></div>
+  <div v-if="balance" class="usage-summary"><span>累计兑换 <strong>{{formatPoints(balance.total_credited)}}</strong> 积分</span><span>累计消耗 <strong>{{formatPoints(balance.total_spent)}}</strong> 积分</span><span>下载已有视频或 PPT 不重复扣费</span></div>
   <section class="ledger-card" aria-labelledby="ledger-heading">
    <header class="ledger-header"><div><h2 id="ledger-heading">积分明细</h2><p>每一笔积分的去向，都清晰可查。</p></div><div class="ledger-filters" role="group" aria-label="积分记录类型"><button v-for="item in filters" :key="item.key" type="button" :aria-pressed="filter===item.key" @click="chooseFilter(item.key)">{{item.label}}</button></div></header>
    <div v-if="recordsError" class="records-message" role="alert"><p>{{recordsError}}</p><el-button @click="loadRecords">重试记录</el-button></div>
    <div v-else-if="recordsLoading" class="records-message" role="status">正在加载积分记录…</div>
    <div v-else-if="!records.length" class="empty-ledger"><span class="empty-icon"><AppIcon name="receipt"/></span><h3>暂无积分记录</h3><p>兑换积分或成功生成视频后，记录会出现在这里。</p></div>
-   <div v-else class="ledger-table-wrap"><table class="ledger-table"><caption class="sr-only">积分收支记录</caption><thead><tr><th scope="col">类型 / 项目</th><th scope="col">时间</th><th scope="col" class="numeric">积分变动</th><th scope="col" class="numeric">变动后余额</th></tr></thead><tbody><tr v-for="item in records" :key="item.id"><td><div class="transaction-label"><span class="transaction-icon" :class="{income:item.amount>0}"><AppIcon :name="item.amount>0?'ticket':'make'"/></span><div><strong>{{item.amount>0?'兑换充值':'视频生成'}}</strong><span>{{item.description}}</span></div></div></td><td class="transaction-time">{{formatCreditTime(item.created_at)}}</td><td class="numeric amount" :class="{income:item.amount>0}">{{item.amount>0?'+':''}}{{formatPoints(item.amount)}}</td><td class="numeric">{{formatPoints(item.balance_after)}}</td></tr></tbody></table></div>
+   <div v-else class="ledger-table-wrap"><table class="ledger-table"><caption class="sr-only">积分收支记录</caption><thead><tr><th scope="col">类型 / 项目</th><th scope="col">时间</th><th scope="col" class="numeric">积分变动</th><th scope="col" class="numeric">变动后余额</th></tr></thead><tbody><tr v-for="item in records" :key="item.id"><td><div class="transaction-label"><span class="transaction-icon" :class="{income:item.amount>0}"><AppIcon :name="item.amount>0?'ticket':'make'"/></span><div><strong>{{item.amount>0?'兑换充值':item.kind==='ppt_generation'?'PPT 生成':'视频生成'}}</strong><span>{{item.description}}</span></div></div></td><td class="transaction-time">{{formatCreditTime(item.created_at)}}</td><td class="numeric amount" :class="{income:item.amount>0}">{{item.amount>0?'+':''}}{{formatPoints(item.amount)}}</td><td class="numeric">{{formatPoints(item.balance_after)}}</td></tr></tbody></table></div>
    <el-pagination v-if="total>20&&!recordsError" v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next" class="ledger-pagination" @current-change="loadRecords"/>
   </section>
-  <p class="billing-note">计费说明：生成前预留 10 积分，动画预览成功后结算；失败或取消后释放预留。重新生成视频或生成修改版按新任务计费。</p>
+  <p class="billing-note">计费说明：视频和 PPT 每次生成前预留 10 积分，成功后结算，失败或取消后释放预留。重新生成或 AI 生成修改版按新任务计费；大纲、PPT 手动编辑和下载不重复扣费。</p>
  </section>
 </template>
 <style scoped>

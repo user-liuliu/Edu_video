@@ -13,6 +13,7 @@ from app.materials.storage import MaterialStorage
 from .celery_app import celery_app
 from .dispatcher import dispatch_pending, cleanup_objects
 from .service import count_active_generation_jobs, lock_generation_capacity
+from .continuation import ContinueJob, requeue_continuation
 
 
 @celery_app.task(name='edu.dispatch')
@@ -157,6 +158,11 @@ async def run_job(job_id, settings=None):
                 if not changed.rowcount: raise ValueError('任务已由其他进程接管或终止')
                 if kind=='video': await settle_video(db,job)
                 await db.commit()
+            except ContinueJob as continuation:
+                await db.rollback()
+                # Existing outbox dispatcher resumes this same job. Do not
+                # settle/release its hold or publish a terminal UI event.
+                await requeue_continuation(db,UUID(str(job_id)),token,continuation.stage)
             except Exception as exc:
                 await db.rollback()
                 # Only deliberate Chinese validation errors are safe for users; never expose provider bodies.

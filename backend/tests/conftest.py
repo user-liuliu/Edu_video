@@ -155,9 +155,14 @@ async def admin_client(app, make_client, admin_user) -> httpx.AsyncClient:
 
 
 @pytest.fixture
-async def teacher_client(app, make_client, make_user) -> httpx.AsyncClient:
+async def teacher_client(app, make_client, make_user, db, request) -> httpx.AsyncClient:
     """一个正常状态的老师 teacher1 / pass1234，已登录的独立 client。"""
-    await make_user("teacher1")
+    teacher=await make_user("teacher1")
+    # Existing non-billing PPT regressions explicitly run with disposable test funds.
+    # Billing tests exercise zero/last-ten and seed their own exact balances.
+    if request.node.path.name.startswith('test_ppt_') and request.node.path.name!='test_ppt_credit_billing.py':
+        from app.models import CreditWallet
+        db.add(CreditWallet(owner_id=teacher.id,balance=1000));await db.commit()
     c = make_client(app)
     await login(c, "teacher1", "pass1234")
     return c
