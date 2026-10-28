@@ -79,6 +79,18 @@ def test_state_diff_scale_pose_camera_and_keep():
     assert state_diff(StageState(keep=['title']), StageState(keep=['title'])) == []
 
 
+def test_state_diff_pose_angles_wrap_around():
+    def pose(deg):
+        return StageState(actors={'kr': ActorState(x=1, y=1, pose={'arm': deg})})
+    assert state_diff(pose(359), pose(1)) == []  # 2 degrees apart across 0
+    assert state_diff(pose(200), pose(-160)) == []  # the runtime reads poses back in -180..180
+    assert state_diff(pose(-179), pose(180)) == []
+    assert state_diff(pose(720), pose(0)) == []
+    assert state_diff(pose(10), pose(20))
+    assert state_diff(pose(170), pose(-170))  # 20 degrees apart across 180
+    assert state_diff(pose(0), pose(180))
+
+
 def test_state_diff_messages_are_chinese_and_name_the_actor():
     diffs = state_diff(StageState(actors={'kr': ActorState(x=0, y=0)}),
                        StageState(actors={'kr': ActorState(x=50, y=0)}))

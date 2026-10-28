@@ -78,6 +78,11 @@ class Segment(_Model):
     end_state: StageState
 
 
+def angle_difference(a: float, b: float) -> float:
+    """Smallest signed difference a - b in degrees, in [-180, 180)."""
+    return (a - b + 180) % 360 - 180
+
+
 def state_diff(a: StageState, b: StageState) -> list[str]:
     """Chinese descriptions of every difference between two stage states; [] when equal."""
     diffs: list[str] = []
@@ -102,8 +107,11 @@ def state_diff(a: StageState, b: StageState) -> list[str]:
         if left.flip != right.flip:
             diffs.append(f'角色 {name} 的朝向不一致')
         for part in sorted(set(left.pose) | set(right.pose)):
-            number(f'角色 {name} 的 {part} 角度', left.pose.get(part, 0), right.pose.get(part, 0),
-                   ANGLE_TOLERANCE)
+            l_deg, r_deg = left.pose.get(part, 0), right.pose.get(part, 0)
+            # Angles are compared on the circle: the runtime reads poses back with atan2
+            # (-180..180), so a declared 200 is measured as -160.
+            if abs(angle_difference(l_deg, r_deg)) > ANGLE_TOLERANCE:
+                diffs.append(f'角色 {name} 的 {part} 角度不一致：{l_deg:g} 对 {r_deg:g}')
 
     if sorted(a.keep) != sorted(b.keep):
         diffs.append(f'保留元素不一致：{sorted(a.keep)} 对 {sorted(b.keep)}')
