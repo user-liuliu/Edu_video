@@ -585,6 +585,19 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
         issue = next(i for i in result.issues if i.code == 'bounds')
         self.assertIn('字幕区', issue.message); self.assertIn('parked', issue.element)
 
+    # ---- Task 10: the end-to-end demo film ----------------------------------------------
+    async def test_demo_film_has_no_issues(self):
+        from app.studio.demo import demo_html, load_film
+        # The fixture's hand-written word timings (the image keeps tests/ apart from the app).
+        segments, seams, characters = load_film(Path(__file__).with_name('fixtures') / 'studio' / 'demo')
+        html = demo_html(segments, seams, characters)
+        started = time.monotonic()
+        result = await inspect_film(req(html))
+        print(f'\n[demo] inspect of the {film_data(html)["duration"]:.2f} s demo film, all checks: '
+              f'{time.monotonic() - started:.1f} s')
+        self.assertEqual(result.issues, [])
+        self.assertEqual(set(result.states), {'parabola', 'vertex', 'story'})
+
 
 if __name__ == '__main__':
     from renderer.resources import limit_cpu_affinity
