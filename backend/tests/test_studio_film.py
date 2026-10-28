@@ -207,3 +207,15 @@ def test_assemble_audio_rejects_wrong_clip_count_and_mixed_formats():
         assemble_audio([wav(1.0, 24000), wav(1.0, 16000)], segs, seams)
     with pytest.raises(FilmError, match='第 a 段'):
         assemble_audio([b'not a wav', wav(1.0)], segs, seams)
+
+
+def test_film_needs_webgl_only_for_code_that_uses_three():
+    from app.studio.page import film_needs_webgl
+    plain = build_film_html([seg('a', 2, code='ctx.svg.innerHTML = "";')], [])
+    assert 'three.iife.js' in plain  # every film loads the bundle; that alone needs no WebGL
+    assert not film_needs_webgl(plain)
+    # Narration lives in the film JSON block, not in code.
+    assert not film_needs_webgl(build_film_html([seg('a', 2, narration='THREE.js 是什么')], []))
+    assert film_needs_webgl(build_film_html([seg('a', 2, code='const r = new THREE.WebGLRenderer();')], []))
+    assert film_needs_webgl(build_film_html([seg('a', 2)], [], characters_code='const {Mesh} = THREE;'))
+    assert not film_needs_webgl(build_film_html([seg('a', 2, code='const MY_THREE = 3;')], []))

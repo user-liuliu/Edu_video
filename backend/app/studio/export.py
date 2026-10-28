@@ -40,12 +40,13 @@ def frame_count(duration: float, fps: int) -> int:
 
 async def _frames(req: RenderRequest, process) -> None:
     from app.studio.inspect import diagnostic_issues, from_timeout
-    from app.studio.page import StudioTimeout, bounded, studio_page
+    from app.studio.page import StudioTimeout, bounded, film_needs_webgl, studio_page
 
     first_seen: dict[str, float] = {}
     t = None
     try:
-        async with studio_page(req.html, width=req.width, height=req.height) as (page, errors):
+        async with studio_page(req.html, width=req.width, height=req.height,
+                               webgl=film_needs_webgl(req.html)) as (page, errors):
             async def refuse():
                 diagnostics = await bounded(page, page.evaluate('window.studioDiagnostics'))
                 if diagnostics or errors:

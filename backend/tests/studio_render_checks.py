@@ -15,6 +15,7 @@ from app.studio.render_contract import InspectRequest, RenderRequest, film_data
 from app.studio.runtime.assets import runtime_digest
 from studio_runtime_checks import CHARACTERS, CORE, MUTATING_PART, NARRATION, WORDS, core_film, two_segment_film
 
+THREE_SEGMENT = (Path(__file__).with_name('fixtures') / 'studio' / 'three_segment.js').read_text(encoding='utf-8')
 ALL_CHECKS = ['determinism', 'bounds', 'overlap', 'highlights', 'geometry', 'states']
 STYLE = '.edu-stage{background:#fdfaf3}'
 
@@ -292,6 +293,82 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
         runtime = next(i for i in result.issues if i.code == 'runtime')
         self.assertTrue(runtime.message.startswith('第 a 段：绘制超时，可能有死循环'), runtime)
         self.assertAlmostEqual(runtime.t, 1.5, 3)
+
+    # ---- 3D feasibility (Task 9): three.js on SwiftShader, no GPU --------------------------
+    async def test_three_segment_renders_deterministically_without_gpu(self):
+        import numpy as np
+        from PIL import Image
+        from app.studio.inspect import _same_png
+        from app.studio.page import film_needs_webgl, studio_page
+
+        html = one_segment(THREE_SEGMENT)
+        self.assertTrue(film_needs_webgl(html))
+
+        def pixels(png):
+            return np.asarray(Image.open(io.BytesIO(png)).convert('RGB')).astype('int16')
+
+        async with studio_page(html, webgl=film_needs_webgl(html)) as (page, errors):
+            renderer = await page.evaluate('''() => {
+              const gl = document.createElement('canvas').getContext('webgl2');
+              if (!gl) return null;
+              const info = gl.getExtension('WEBGL_debug_renderer_info');
+              return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+            }''')
+            print(f'\n[3d] WebGL renderer: {renderer}')
+
+            async def shot(t):
+                await page.evaluate('t => window.renderFrame(t)', t)
+                return await page.screenshot(type='png')
+
+            # 1. no errors, not blank: much of the frame is not the background, and it moves.
+            first, middle = await shot(0.0), await shot(1.5)
+            background = np.array([0xfd, 0xfa, 0xf3], dtype='int16')
+            drawn = float((np.abs(pixels(middle) - background).max(axis=2) > 24).mean())
+            moved = float(np.abs(pixels(first) - pixels(middle)).mean())
+            print(f'[3d] drawn share {drawn:.3f}, mean change 0 s -> 1.5 s {moved:.2f}')
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+            self.assertGreater(drawn, 0.05)
+            self.assertGreater(moved, 1.0)
+
+            # 2. same t, same pixels: forward, then reversed after seeking elsewhere, then again.
+            times = [0.0, 0.75, 1.5, 2.25, 2.999]
+            forward = {t: await shot(t) for t in times}
+            exact = 0
+            for t in reversed(times):
+                again = await shot(t)
+                self.assertTrue(_same_png(forward[t], again), f'{t} s differs after seeking away')
+                exact += forward[t] == again
+            repeat = await shot(1.5)
+            self.assertTrue(_same_png(forward[1.5], repeat))
+            exact += forward[1.5] == repeat
+            print(f'[3d] bit-identical revisits: {exact}/{len(times) + 1}')
+
+            # 3. frame cost at 1280x720: renderFrame + PNG screenshot, as the exporter does.
+            costs = []
+            for k in range(60):
+                started = time.monotonic()
+                await shot(k * 3.0 / 60)
+                costs.append(time.monotonic() - started)
+            costs.sort()
+            mean, p95 = sum(costs) / len(costs), costs[int(len(costs) * 0.95) - 1]
+            print(f'[3d] per frame: mean {mean:.3f} s, p95 {p95:.3f} s, max {costs[-1]:.3f} s')
+            self.assertLessEqual(mean, 0.5)
+
+        # 4. the 3 s segment exports to mp4.
+        with tempfile.TemporaryDirectory() as tmp:
+            started = time.monotonic()
+            meta = await render_film(render_req(html), Path(tmp) / 'three.mp4')
+            print(f'[3d] mp4 export of the 3 s segment: {time.monotonic() - started:.2f} s')
+            self.assertAlmostEqual(meta['duration'], 3.0, delta=1 / 30)
+            self.assertEqual((meta['width'], meta['height']), (1280, 720))
+            self.assertTrue((Path(tmp) / 'three.mp4').stat().st_size > 1000)
+
+    async def test_three_segment_has_no_inspect_issues(self):
+        started = time.monotonic()
+        result = await inspect_film(req(one_segment(THREE_SEGMENT), frames=[1.5]))
+        print(f'\n[3d] inspect with all checks: {time.monotonic() - started:.2f} s, issues {result.issues}')
+        self.assertEqual(result.issues, [])
 
     async def test_offstage_label_on_canvas_in_subtitles_is_reported(self):
         result = await inspect_film(req(seg_with_code(PARKED_LOW), checks=['bounds']))

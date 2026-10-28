@@ -390,7 +390,7 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
     """All requested checks on one page. A page that stops answering (an endless loop in a
     segment's build or painter) is stopped and reported as a ``runtime`` issue; the issues
     and frames found until then are kept."""
-    from app.studio.page import StudioTimeout, studio_page
+    from app.studio.page import StudioTimeout, film_needs_webgl, studio_page
 
     data = film_data(req.html)
     check_film(data, req.duration)
@@ -407,7 +407,8 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
     measured: list[dict] = []
 
     try:
-        async with studio_page(req.html, width=width, height=height) as (page, errors):
+        async with studio_page(req.html, width=width, height=height,
+                               webgl=film_needs_webgl(req.html)) as (page, errors):
             boot = await _step(page, page.evaluate('window.studioDiagnostics.map(d => d.segment)'))
             collected: dict[str, dict] = {}
             for s in segments:

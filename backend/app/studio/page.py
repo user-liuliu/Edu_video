@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from contextlib import asynccontextmanager
 from urllib.parse import unquote, urlsplit
 
@@ -76,6 +77,25 @@ async def bounded(page, awaitable, timeout: float = STEP_TIMEOUT):
         raise await _stop(page, timeout) from None
 
 
+_INLINE_SCRIPT = re.compile(r'<script(?P<attrs>[^>]*)>(?P<body>.*?)</script>', re.IGNORECASE | re.DOTALL)
+_USES_THREE = re.compile(r'(?<![\w$.])THREE\b')
+
+
+def film_needs_webgl(html: str) -> bool:
+    """True when segment or character code uses three.js (``THREE``).
+
+    Only inline code scripts are searched: the vendored three.js bundle is loaded by every
+    film through ``src``, and the film JSON block holds narration text, not code.
+    """
+    for match in _INLINE_SCRIPT.finditer(html):
+        attrs = match['attrs'].lower()
+        if 'src=' in attrs or 'application/json' in attrs:
+            continue
+        if _USES_THREE.search(match['body']):
+            return True
+    return False
+
+
 def _content_type(name: str) -> str | None:
     for suffix, value in CONTENT_TYPES.items():
         if name.endswith(suffix):
@@ -87,7 +107,8 @@ def _content_type(name: str) -> str | None:
 async def studio_page(html: str, *, width: int = 1280, height: int = 720, webgl: bool = False):
     """Yield ``(page, errors)`` once ``window.studioReady`` has resolved.
 
-    ``errors`` collects ``pageerror`` messages for the whole life of the page.
+    ``errors`` collects ``pageerror`` messages for the whole life of the page. ``webgl``
+    starts Chromium with the CPU (SwiftShader) WebGL backend; see ``film_needs_webgl``.
     """
     from playwright.async_api import async_playwright
 
