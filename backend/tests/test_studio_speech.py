@@ -4,7 +4,7 @@ import sys
 import pytest
 
 from app.studio.speech import VOICES, cue, synthesize_words
-from app.studio.words import align_words, sentence_captions
+from app.studio.words import Word, align_words, sentence_captions
 
 TEXT = '二次函数的图像是一条抛物线，顶点就是它的最低点。'
 
@@ -80,6 +80,58 @@ def test_sentence_captions_split_on_punctuation():
     caps = sentence_captions(text, words)
     assert [c['text'] for c in caps] == [TEXT, '它在对称轴上。']
     assert (caps[0]['start'], caps[0]['end']) == pytest.approx((0.10, 4.38))
+
+
+LONG = ('同学们好，今天我们一起来研究二次函数的图像和性质，首先我们观察抛物线的开口方向'
+        '对称轴还有顶点坐标这三个关键的特征，然后用配方法求出顶点的位置，再画出图像。')
+CLAUSE_BREAKS = '，、；：,;:'
+
+
+def two_char_words(text, start=0.0, step=0.25):
+    """One word per two spoken characters, `step` seconds each, punctuation skipped."""
+    words, t, i = [], start, 0
+    while i < len(text):
+        if not text[i].isalnum():
+            i += 1
+            continue
+        j = i + 1 if i + 1 < len(text) and not text[i + 1].isalnum() else min(i + 2, len(text))
+        words.append(Word(text[i:j], t, t + step * 0.8, i, j))
+        t += step
+        i = j
+    return words
+
+
+def test_long_sentence_is_split_into_single_line_captions():
+    assert len(LONG) == 77
+    words = two_char_words(LONG)
+    caps = sentence_captions(LONG, words)
+    assert len(caps) > 1
+    assert ''.join(c['text'] for c in caps) == LONG
+    for c in caps:
+        assert len(c['text'].rstrip(CLAUSE_BREAKS + '。！？!?')) <= 24, c
+        assert c['text'][0] not in CLAUSE_BREAKS + '。', c  # punctuation stays with the piece before it
+    # No word is cut: every word lies inside exactly one piece.
+    bounds, offset = [], 0
+    for c in caps:
+        bounds.append((offset, offset + len(c['text'])))
+        offset += len(c['text'])
+    for w in words:
+        assert sum(1 for b in bounds if b[0] <= w.char_start and w.char_end <= b[1]) == 1, w
+    # Times come from the words, are monotonic and contiguous inside the sentence.
+    assert caps[0]['start'] == pytest.approx(words[0].start)
+    assert caps[-1]['end'] == pytest.approx(words[-1].end)
+    for a, b in zip(caps, caps[1:]):
+        assert a['start'] < a['end'] < b['end']
+        assert a['end'] == pytest.approx(b['start'])
+
+
+def test_caption_split_prefers_clause_punctuation_then_word_boundary():
+    text = '一二三四五六七八九十，甲乙丙丁戊己庚辛壬癸。'
+    caps = sentence_captions(text, two_char_words(text), max_chars=12)
+    assert [c['text'] for c in caps] == ['一二三四五六七八九十，', '甲乙丙丁戊己庚辛壬癸。']
+    text = '一二三四五六七八九十甲乙丙丁戊己庚辛壬癸。'
+    caps = sentence_captions(text, two_char_words(text), max_chars=7)
+    assert [c['text'] for c in caps] == ['一二三四五六', '七八九十甲乙', '丙丁戊己庚辛', '壬癸。']
 
 
 async def test_synthesize_words_uses_word_boundary_and_validates_speaker(monkeypatch, mp3):

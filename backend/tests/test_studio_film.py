@@ -162,6 +162,16 @@ def test_film_captions_offset_by_segment_start():
                     {'text': '再见。', 'start': pytest.approx(2.7), 'end': pytest.approx(3.5)}]
 
 
+def test_film_captions_are_single_line_length():
+    text = '同学们好今天我们一起来研究二次函数的图像和性质首先观察抛物线的开口方向。'
+    words = [Word(text[i:i + 2], 0.2 * i, 0.2 * i + 0.3, i, i + 2) for i in range(0, len(text) - 1, 2)]
+    caps = film_captions([seg('a', 10, narration=text, words=words)], [])
+    assert len(caps) == 2
+    assert ''.join(c['text'] for c in caps) == text
+    assert all(len(c['text'].rstrip('。')) <= 24 for c in caps)
+    assert caps[0]['end'] == pytest.approx(caps[1]['start'])
+
+
 def test_assemble_audio_inserts_silence_and_checks_lengths():
     segs = [seg('a', 1.0), seg('b', 2.0)]
     out = assemble_audio([wav(1.0), wav(2.0)], segs, [Seam(kind='transition', transition='fade', duration=0.5)])

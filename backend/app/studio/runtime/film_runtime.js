@@ -274,12 +274,25 @@
     drawCaption(t);
   }
 
-  // Captions: the sentence whose [start, end) contains t, centred in the subtitle zone.
+  // Captions: the piece whose [start, end) contains t, on one line, centred in the subtitle
+  // zone. Pieces are cut to subtitle length when the film is built; one that still measures
+  // wider than the stage (minus a margin) gets a font size just small enough to fit. The
+  // size is computed from measuring the text in the loaded fonts, so it depends on the text
+  // only, never on which frame came before.
+  var CAPTION_SIZE = 30, CAPTION_MARGIN = 24;
   function drawCaption(t) {
     var text = '';
     (film.captions || []).forEach(function (c) { if (c.start <= t && t < c.end) text = c.text; });
     if (captionEl.textContent !== text) captionEl.textContent = text;
     captionEl.style.display = text ? '' : 'none';
+    captionEl.style.fontSize = CAPTION_SIZE + 'px';
+    if (!text) return;
+    var room = film.width - 2 * CAPTION_MARGIN;
+    var size = CAPTION_SIZE;
+    for (var i = 0; i < 4 && captionEl.offsetWidth > room; i++) {
+      size = Math.floor(size * room / captionEl.offsetWidth * 100) / 100 - (i ? 0.25 : 0);
+      captionEl.style.fontSize = size + 'px';
+    }
   }
 
   // A segment that failed draws nothing for the rest of the film.
@@ -303,7 +316,7 @@
       'px;display:flex;align-items:center;justify-content:center;z-index:100;pointer-events:none';
     captionEl = document.createElement('span');
     captionEl.className = 'edu-caption';
-    captionEl.style.cssText = 'display:none;max-width:90%;box-sizing:border-box;padding:4px 18px;' +
+    captionEl.style.cssText = 'display:none;flex:none;white-space:nowrap;box-sizing:border-box;padding:4px 18px;' +
       'border-radius:8px;background:rgba(0, 0, 0, 0.55);color:#ffffff;text-align:center;' +
       'font-family:"Noto Sans SC", sans-serif;font-weight:400;font-size:30px;line-height:1.35';
     zone.appendChild(captionEl);

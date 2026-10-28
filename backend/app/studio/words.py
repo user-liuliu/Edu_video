@@ -5,6 +5,7 @@ from dataclasses import dataclass
 # Spoken numerals Edge may return for ASCII digits (0-10 only on purpose).
 _DIGITS = {c: str(i) for i, chars in enumerate(('零〇', '一', '二两', '三', '四', '五', '六', '七', '八', '九')) for c in chars}
 _SENTENCE_END = '。！？!?；;'
+_CLAUSE_BREAK = '，、；：,;:'  # where an over-long sentence is preferably cut
 
 
 @dataclass(frozen=True)
@@ -75,13 +76,62 @@ def cue(words, text, phrase, occurrence=1):
     return min(w.start for w in hit), max(w.end for w in hit)
 
 
-def sentence_captions(text, words):
+def _core_length(piece):
+    """Characters a caption piece shows, not counting trailing punctuation or spaces."""
+    end = len(piece)
+    while end and not piece[end - 1].isalnum():
+        end -= 1
+    return end
+
+
+def _split_points(text, start, end, words, max_chars):
+    """Cut positions in text[start:end] so every piece's core length is <= max_chars.
+
+    A piece ends after the last clause mark within the limit, else at the last word end
+    within the limit (never inside a word), else after the first word (a single word longer
+    than the limit stays whole). Punctuation after the cut stays with the piece before it."""
+    inner = [w for w in words if start <= w.char_start < end]
+    def in_word(pos):
+        return any(w.char_start < pos < w.char_end for w in inner)
+    cuts, cursor = [], start
+    while _core_length(text[cursor:end]) > max_chars:
+        cut = None
+        for pos in range(cursor + 1, end):
+            if text[pos - 1] in _CLAUSE_BREAK and not in_word(pos) and _core_length(text[cursor:pos]) <= max_chars:
+                cut = pos
+        if cut is None:
+            fits = [w.char_end for w in inner if w.char_end > cursor and w.char_end - cursor <= max_chars]
+            cut = max(fits) if fits else min((w.char_end for w in inner if w.char_end > cursor), default=end)
+        while cut < end and not text[cut].isalnum():
+            cut += 1
+        if cut >= end:
+            break
+        cuts.append(cut)
+        cursor = cut
+    return cuts
+
+
+def sentence_captions(text, words, max_chars=24):
+    """Captions for `text`: one per sentence, and a sentence whose shown length exceeds
+    `max_chars` is cut into pieces (see _split_points). Each piece starts when its first word
+    starts; inside a sentence it lasts until the next piece starts, the last until its last
+    word ends."""
     captions = []
     for match in re.finditer(f'[^{_SENTENCE_END}]*(?:[{_SENTENCE_END}]+|$)', text):
         start, end = match.span()
-        sentence = text[start:end].strip()
-        inside = [w for w in words if start <= w.char_start < end]
-        if sentence and inside:
-            captions.append({'text': sentence, 'start': min(w.start for w in inside),
-                             'end': max(w.end for w in inside)})
+        while start < end and text[start].isspace():
+            start += 1
+        while end > start and text[end - 1].isspace():
+            end -= 1
+        bounds = [start, *_split_points(text, start, end, words, max_chars), end]
+        pieces = []
+        for left, right in zip(bounds, bounds[1:]):
+            inside = [w for w in words if left <= w.char_start < right]
+            piece = text[left:right].strip()
+            if piece and inside:
+                pieces.append({'text': piece, 'start': min(w.start for w in inside),
+                               'end': max(w.end for w in inside)})
+        for a, b in zip(pieces, pieces[1:]):
+            a['end'] = b['start']
+        captions.extend(pieces)
     return captions

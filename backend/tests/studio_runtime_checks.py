@@ -8,7 +8,7 @@ from app.studio.contract import ActorState, Camera, Seam, Segment, StageState
 from app.studio.film import build_film_html
 from app.studio.page import studio_page
 from app.studio.runtime.assets import RUNTIME_DIR
-from app.studio.words import align_words
+from app.studio.words import Word, align_words
 from app.videos.direct_render import same_pixels
 
 FIXTURES = Path(__file__).with_name('fixtures') / 'studio'
@@ -82,6 +82,33 @@ def two_segment_film(*, seam='continue', transition=None, gap=0.4, b_code=SEAM_B
                 for sid, code in (('a', SEAM_A), ('b', b_code))]
     seams = [Seam(kind=seam, transition=transition, duration=gap)]
     return build_film_html(segments, seams, style_css='.edu-stage{background:#fdfaf3}')
+
+
+LONGEST_PIECE = '二次函数图像的顶点坐标可以用配方法求出来对吧对吧'  # 24 wide characters, no break
+LONG_SENTENCE = ('同学们好，今天我们一起来研究二次函数的图像和性质，首先我们观察抛物线的开口方向'
+                 '对称轴还有顶点坐标这三个关键的特征，然后用配方法求出顶点的位置，再画出图像。')  # 77
+UNBREAKABLE = 'W' * 60  # one word wider than the stage at 30 px: the runtime must shrink it
+
+
+def caption_film():
+    """One segment saying the longest allowed piece, a 77-character sentence, and one word
+    that cannot be cut; words are two characters, 0.25 s each."""
+    text = LONGEST_PIECE + '。' + LONG_SENTENCE + UNBREAKABLE + '。'
+    words, t, i = [], 0.0, 0
+    while i < len(text):
+        if not text[i].isalnum():
+            i += 1
+            continue
+        if text[i] == 'W':
+            j = i + len(UNBREAKABLE)
+        else:
+            j = i + 1 if i + 1 < len(text) and not text[i + 1].isalnum() else min(i + 2, len(text))
+        words.append(Word(text[i:j], t, t + 0.2, i, j))
+        t += 0.25
+        i = j
+    segment = Segment(id='a', code='', duration=round(t + 0.5, 2), words=words, narration=text,
+                      start_state=StageState(), end_state=StageState())
+    return build_film_html([segment], [], style_css='.edu-stage{background:#fdfaf3}')
 
 
 async def frame_at(page, t):
@@ -401,6 +428,27 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(errors, [], name)
                 self.assertEqual(await page.evaluate('window.studioDiagnostics'), [], name)
                 self.assertEqual(await page.evaluate('typeof EduStudio.transitions.' + name), 'function')
+                if name == 'match':
+                    await self._assert_match_interpolates(page)
+
+    async def _assert_match_interpolates(self, page):
+        # a leaves the matched dot at (500, 480), r 40; b starts it at (900, 250), r 70.
+        dot = '''t=>{window.renderFrame(t);
+            const l=Array.from(document.querySelectorAll('.edu-stage .edu-layer'))
+                .filter(e=>getComputedStyle(e).opacity==='1')[0];
+            const r=l.querySelector('[data-edu-match=dot]').getBoundingClientRect();
+            return [l.dataset.segment, r.left+r.width/2, r.top+r.height/2, r.width]}'''
+        seen = {}
+        for t in (2.2, 2.6, 2.8, 2.2, 0.5, 2.6):  # progress 0.25 and 0.75, then backward
+            got = await page.evaluate(dot, t)
+            if t in seen:
+                self.assertEqual(got, seen[t], t)
+            seen[t] = got
+        for t, layer in ((2.2, 'a'), (2.6, 'b')):
+            seg_id, x, y, w = seen[t]
+            self.assertEqual(seg_id, layer, t)
+            self.assertTrue(510 < x < 890 and 260 < y < 470 and 82 < w < 138, (t, seen[t]))
+        self.assertLess(seen[2.2][1], seen[2.6][1])  # moving from a's place towards b's
 
     async def test_caption_shows_current_sentence(self):
         caption = '.edu-caption'
@@ -419,6 +467,42 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             for t, text in ((1.9, ''), (2.5, '第二句。'), (0.5, '第一句。'), (0.1, '')):
                 await page.evaluate('t=>window.renderFrame(t)', t)
                 self.assertEqual((await page.locator(caption).text_content()).strip(), text, t)
+
+    async def test_captions_are_single_lines_inside_the_subtitle_zone(self):
+        probe = '''(()=>{const e=document.querySelector('.edu-caption');const r=e.getBoundingClientRect();
+            const s=document.querySelector('.edu-stage').getBoundingClientRect();
+            return {text: e.textContent, top: r.top-s.top, bottom: r.bottom-s.top, left: r.left-s.left,
+                    right: r.right-s.left, height: r.height, size: parseFloat(getComputedStyle(e).fontSize),
+                    lines: Math.round((r.height - 8) / (parseFloat(getComputedStyle(e).lineHeight)))}})()'''
+        async with studio_page(caption_film()) as (page, errors):
+            captions = await page.evaluate(
+                'JSON.parse(document.getElementById("edu-studio-film").textContent).captions')
+            self.assertEqual(captions[0]['text'], LONGEST_PIECE + '。')
+            long_pieces = [c for c in captions if c['text'][0] not in 'W' and c is not captions[0]]
+            self.assertGreater(len(long_pieces), 2)  # the 77-character sentence: several captions
+            self.assertEqual(''.join(c['text'] for c in long_pieces), LONG_SENTENCE)
+            for c in captions:
+                await page.evaluate('t=>window.renderFrame(t)', (c['start'] + c['end']) / 2)
+                box = await page.evaluate(probe)
+                self.assertEqual(box['text'], c['text'])
+                self.assertEqual(box['lines'], 1, box)
+                self.assertGreaterEqual(box['top'], SUBTITLE_TOP, box)
+                self.assertLessEqual(box['bottom'], 720, box)
+                self.assertGreaterEqual(box['left'], 0, box)
+                self.assertLessEqual(box['right'], 1280, box)
+                if c['text'][0] == 'W':
+                    self.assertLess(box['size'], 30, box)  # shrunk to fit, not wrapped
+                else:
+                    self.assertEqual(box['size'], 30, box)
+            # The shrunk size depends on the text only: same after a different history.
+            last = captions[-1]
+            sizes = []
+            for before in (0, last['end'] - 0.01, captions[1]['start']):
+                await page.evaluate('t=>window.renderFrame(t)', before)
+                await page.evaluate('t=>window.renderFrame(t)', (last['start'] + last['end']) / 2)
+                sizes.append((await page.evaluate(probe))['size'])
+            self.assertEqual(len(set(sizes)), 1, sizes)
+            self.assertEqual(errors, [])
 
     async def test_broken_segment_is_reported_by_id(self):
         from PIL import Image
