@@ -25,6 +25,7 @@ THROWING_BUILD = (FIXTURES / 'throwing_build_segment.js').read_text(encoding='ut
 KATEX = (FIXTURES / 'katex_segment.js').read_text(encoding='utf-8')
 KATEX_HELPER = (FIXTURES / 'katex_helper.js').read_text(encoding='utf-8')
 KATEX_HELPER_SEGMENT = (FIXTURES / 'katex_helper_segment.js').read_text(encoding='utf-8')
+EFFECTS = (FIXTURES / 'effects_segment.js').read_text(encoding='utf-8')
 API_MD = RUNTIME_DIR / 'API.md'
 
 NARRATION = '二次函数的图像是一条抛物线，顶点就是它的最低点。'
@@ -57,6 +58,12 @@ def plain_film(code, *, characters='', duration=3.0):
                       start_state=StageState(), end_state=StageState())
     return build_film_html([segment], [], characters_code=characters,
                            style_css='.edu-stage{background:#fdfaf3}')
+
+
+def effects_film(code=EFFECTS):
+    segment = Segment(id='fx', code=code, duration=7.0, words=WORDS, narration=NARRATION,
+                      start_state=StageState(), end_state=StageState())
+    return build_film_html([segment], [], style_css='.edu-stage{background:#fdfaf3}')
 
 
 def same_png(first, second):
@@ -196,6 +203,63 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             await page.evaluate('t=>window.renderFrame(t)', 4.0)
             self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
             self.assertEqual(errors, [])
+
+    async def test_tex_term_highlight_lands_on_cue(self):
+        # Fixture: tex('y=\\htmlClass{t-a}{x^2}-2x-3') highlighted with highlight('.t-a') at cue("顶点").
+        term = '.edu-stage .t-a'  # instantiate() adds a second copy in the sandbox
+        async with studio_page(effects_film()) as (page, errors):
+            hs = await page.evaluate('EduFilm.instantiate("fx").highlights()')
+            self.assertEqual(hs[0]['target'], '.t-a')
+            self.assertAlmostEqual(hs[0]['at'], 2.91, 2)
+            self.assertEqual(hs[0]['segment'], 'fx')
+            await page.evaluate('t=>window.renderFrame(t)', 2.0)
+            before = await page.locator(term).evaluate('e=>getComputedStyle(e).color')
+            await page.evaluate('t=>window.renderFrame(t)', 3.3)
+            after = await page.locator(term).evaluate('e=>getComputedStyle(e).color')
+            self.assertNotEqual(before, after)
+            self.assertEqual(errors, [])
+
+            # Same page: plot() maps the function into its box.
+            # Fixture: plot(x=>x*x-2*x-3, {xRange:[-2,4], yRange:[-5,5], box:{x:100,y:80,w:600,h:400}}).
+            p = await page.evaluate('EduFilm.instantiate("fx").plotProbe(1)')  # toScreen(1, f(1))
+            self.assertAlmostEqual(p['x'], 100 + 600 * 3 / 6, 0)
+            self.assertAlmostEqual(p['y'], 80 + 400 * (5 - (-4)) / 10, 0)
+
+            # Same page: drawPath progress follows time (fixture: from 1.0 s for 2.0 s, ease 'none').
+            prog = await page.evaluate('''(()=>{const f=EduFilm.instantiate("fx");f.tl.seek(2.0);
+                const e=f.root.querySelector("#curve");
+                return parseFloat(getComputedStyle(e).strokeDashoffset)/e.getTotalLength()})()''')
+            self.assertAlmostEqual(abs(prog), 0.5, 1)
+
+    async def test_bad_effect_input_names_the_segment(self):
+        cases = (
+            ("ctx.motion.highlight('.nope', 1)", '.nope'),
+            ("ctx.motion.plot(x=>x, {xRange: [3, 1], yRange: [0, 1], box: {x: 0, y: 0, w: 100, h: 100}})", 'xRange'),
+            (r"ctx.motion.tex('\\frac{1}{', {})", 'tex'),
+        )
+        for code, word in cases:
+            async with studio_page(plain_film(code)) as (page, _):
+                diagnostics = await page.evaluate('window.studioDiagnostics')
+                self.assertTrue(any(d['segment'] == 'a' and d['message'].startswith('第 a 段：')
+                                    and word in d['message'] for d in diagnostics), (code, diagnostics))
+
+    async def test_every_effect_is_seek_safe(self):
+        # Same time, same picture: covers tex, highlight, drawPath, plot, spotlight, circle, follow,
+        # morph, splitText, rough, timeline, mapRoute and scaleCompare.
+        for name in ('tex', 'highlight', 'drawPath', 'plot', 'spotlight', 'circle', 'follow', 'morph',
+                     'splitText', 'rough', 'timeline', 'mapRoute', 'scaleCompare'):
+            self.assertIn(f'm.{name}(', EFFECTS, name)
+        async with studio_page(effects_film()) as (page, errors):
+            shots = {}
+            for t in [0.5, 4.5, 2.2, 6.0, 0.5, 6.0, 2.2]:
+                await page.evaluate('t=>window.renderFrame(t)', t)
+                png = await page.screenshot()
+                if t in shots:
+                    self.assertTrue(same_png(shots[t], png), t)
+                shots[t] = png
+            self.assertFalse(same_png(shots[0.5], shots[4.5]))
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
 
     async def test_no_autonomous_playback(self):
         async with studio_page(core_film()) as (page, _):
