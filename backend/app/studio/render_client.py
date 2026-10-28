@@ -5,6 +5,7 @@ import asyncio
 import base64
 import binascii
 import json
+import time
 from typing import Literal
 
 import httpx
@@ -18,8 +19,12 @@ INSPECT_TIMEOUT = 120
 MAX_RENDER_BYTES = int(MAX_OUTPUT_BYTES * 1.4) + 4096  # base64 of the mp4 plus the JSON envelope
 MAX_INSPECT_BYTES = 64 * 1024 * 1024
 MAX_ERROR_BYTES = 1024 * 1024  # 422 bodies are tiny JSON; anything longer is cut off
-MAX_RETRIES = 10
+# The renderer runs one job at a time and a render holds it for minutes, so a busy (429)
+# answer is queued for: retried until this much wall time has passed since the first try,
+# like the old pipeline's QUEUE_TIMEOUT. Applies to inspect and render alike.
+QUEUE_BUDGET = 1800
 DEFAULT_RETRY_AFTER = 2
+MIN_RETRY_AFTER = 0.5  # a Retry-After of 0 must not turn the queue budget into a busy loop
 MAX_RETRY_AFTER = 30
 
 UNCONFIGURED = '视频渲染服务尚未配置，请联系管理员'
@@ -83,14 +88,15 @@ def retry_after(response: httpx.Response) -> float:
         return DEFAULT_RETRY_AFTER
     if not 0 <= seconds < float('inf'):
         return DEFAULT_RETRY_AFTER
-    return min(seconds, MAX_RETRY_AFTER)
+    return min(max(seconds, MIN_RETRY_AFTER), MAX_RETRY_AFTER)
 
 
 class StudioRenderer:
-    def __init__(self, settings, http: httpx.AsyncClient, *, sleep=asyncio.sleep):
+    def __init__(self, settings, http: httpx.AsyncClient, *, sleep=asyncio.sleep, clock=time.monotonic):
         self.url = (settings.renderer_url or '').strip().rstrip('/')
         self.http = http
         self.sleep = sleep
+        self.clock = clock
 
     async def inspect(self, req: InspectRequest) -> InspectResult:
         body = await self._post('/studio/inspect', req.model_dump(mode='json'), INSPECT_TIMEOUT, MAX_INSPECT_BYTES)
@@ -114,13 +120,15 @@ class StudioRenderer:
     async def _post(self, path: str, payload: dict, timeout: float, limit: int) -> bytes:
         if not self.url:
             raise ValueError(UNCONFIGURED)
-        for attempt in range(MAX_RETRIES + 1):
+        deadline = self.clock() + QUEUE_BUDGET
+        while True:
             body, wait = await self._once(path, payload, timeout, limit)
             if body is not None:
                 return body
-            if attempt < MAX_RETRIES:
-                await self.sleep(wait)
-        raise ValueError(BUSY)
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                raise ValueError(BUSY)
+            await self.sleep(min(wait, remaining))
 
     async def _once(self, path: str, payload: dict, timeout: float, limit: int) -> tuple[bytes | None, float]:
         """One request: ``(body, 0)``, or ``(None, seconds_to_wait)`` while the renderer is busy."""

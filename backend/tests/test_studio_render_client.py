@@ -23,13 +23,26 @@ def render_request():
                                          duration=2.0, width=1280, height=720, fps=30)
 
 
-def make(handler, url='http://renderer:8080/', sleeps=None):
+class FakeClock:
+    """Monotonic time that only moves when the client sleeps."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def make(handler, url='http://renderer:8080/', sleeps=None, clock=None):
+    clock = clock or FakeClock()
+
     async def fake_sleep(seconds):
         if sleeps is not None:
             sleeps.append(seconds)
+        clock.now += seconds
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return StudioRenderer(SimpleNamespace(renderer_url=url), http, sleep=fake_sleep)
+    return StudioRenderer(SimpleNamespace(renderer_url=url), http, sleep=fake_sleep, clock=clock)
 
 
 async def test_inspect_posts_to_studio_inspect_and_parses_result():
@@ -90,16 +103,76 @@ async def test_busy_429_default_and_capped_wait():
     assert sleeps == [2, 30, 2]
 
 
-async def test_busy_429_gives_up_after_ten_retries():
+@pytest.mark.parametrize('call', ['inspect', 'render'])
+async def test_busy_429_keeps_queueing_for_the_whole_budget(call):
+    """A render occupies the renderer for minutes; callers queue instead of failing after a few tries."""
+    from app.studio.render_client import QUEUE_BUDGET
+    assert QUEUE_BUDGET == 1800
     calls, sleeps = [], []
 
     def handler(request):
         calls.append(1)
-        return httpx.Response(429, headers={'Retry-After': '1'})
+        if len(calls) <= 200:  # 200 x 5 s = 1000 s of waiting, well past the old ~20 s
+            return httpx.Response(429, headers={'Retry-After': '5'})
+        return httpx.Response(200, json=INSPECT_RESULT if call == 'inspect'
+                              else {'metadata': {}, 'mp4_base64': base64.b64encode(b'mp4').decode()})
+
+    client = make(handler, sleeps=sleeps)
+    await getattr(client, call)(inspect_request() if call == 'inspect' else render_request())
+    assert len(calls) == 201 and sum(sleeps) == 1000
+
+
+async def test_busy_429_gives_up_when_the_wait_budget_is_spent():
+    clock, calls, sleeps = FakeClock(), [], []
+
+    def handler(request):
+        calls.append(clock.now)
+        return httpx.Response(429, headers={'Retry-After': '30'})
 
     with pytest.raises(ValueError, match='渲染服务忙，请稍后重试'):
-        await make(handler, sleeps=sleeps).render(render_request())
-    assert len(calls) == 11 and len(sleeps) == 10
+        await make(handler, sleeps=sleeps, clock=clock).render(render_request())
+    assert sum(sleeps) == 1800  # never waits past the budget
+    assert all(0 < s <= 30 for s in sleeps) and len(sleeps) == 60
+    assert len(calls) == 61  # one last try when the budget runs out
+
+
+async def test_busy_wait_is_trimmed_to_the_remaining_budget():
+    clock, sleeps = FakeClock(), []
+
+    def handler(request):
+        return httpx.Response(429, headers={'Retry-After': '7'})
+
+    with pytest.raises(ValueError, match='渲染服务忙'):
+        await make(handler, sleeps=sleeps, clock=clock).inspect(inspect_request())
+    assert sum(sleeps) == pytest.approx(1800)
+    assert sleeps[-1] == pytest.approx(1800 - 7 * 257)
+
+
+async def test_zero_retry_after_still_waits_a_little():
+    calls, sleeps = [], []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={'Retry-After': '0'})
+        return httpx.Response(200, json=INSPECT_RESULT)
+
+    await make(handler, sleeps=sleeps).inspect(inspect_request())
+    assert sleeps == [0.5]
+
+
+async def test_time_spent_in_requests_counts_against_the_budget():
+    """The budget is wall time since the first try, not only time asleep."""
+    clock, sleeps = FakeClock(), []
+
+    def handler(request):
+        clock.now += 100  # each refused request itself takes 100 s
+        return httpx.Response(429, headers={'Retry-After': '30'})
+
+    with pytest.raises(ValueError, match='渲染服务忙'):
+        await make(handler, sleeps=sleeps, clock=clock).inspect(inspect_request())
+    assert clock.now - 1000 <= 1800 + 100
+    assert len(sleeps) < 15
 
 
 async def test_422_runtime_detail_carries_issues():
