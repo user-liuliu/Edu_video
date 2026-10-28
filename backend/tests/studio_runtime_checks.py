@@ -1,11 +1,13 @@
 """Chromium checks for the studio motion runtime. Run inside the renderer image."""
 import io
 from pathlib import Path
+import re
 import unittest
 
 from app.studio.contract import ActorState, Camera, Segment, StageState
 from app.studio.film import build_film_html
 from app.studio.page import studio_page
+from app.studio.runtime.assets import RUNTIME_DIR
 from app.studio.words import align_words
 from app.videos.direct_render import same_pixels
 
@@ -13,6 +15,11 @@ FIXTURES = Path(__file__).with_name('fixtures') / 'studio'
 CHARACTERS = (FIXTURES / 'characters.js').read_text(encoding='utf-8')
 CORE = (FIXTURES / 'core_segment.js').read_text(encoding='utf-8')
 MUTATING_PART = CORE + '\n' + (FIXTURES / 'mutating_part.js').read_text(encoding='utf-8')
+SCALING_PART = CORE + '\n' + (FIXTURES / 'scaling_part.js').read_text(encoding='utf-8')
+MOVING_PART = CORE + '\n' + (FIXTURES / 'moving_part.js').read_text(encoding='utf-8')
+CANVAS = (FIXTURES / 'canvas_segment.js').read_text(encoding='utf-8')
+TEXT_WIDTH = (FIXTURES / 'text_width_segment.js').read_text(encoding='utf-8')
+API_MD = RUNTIME_DIR / 'API.md'
 
 NARRATION = '二次函数的图像是一条抛物线，顶点就是它的最低点。'
 
@@ -36,6 +43,13 @@ def core_film(code=CORE):
                              actors={'kr': ActorState(x=500, y=600, pose={'arm_r': -60})},
                              keep=['vertex']))
     return build_film_html([segment], [], characters_code=CHARACTERS,
+                           style_css='.edu-stage{background:#fdfaf3}')
+
+
+def plain_film(code, *, characters='', duration=3.0):
+    segment = Segment(id='a', code=code, duration=duration, words=WORDS, narration=NARRATION,
+                      start_state=StageState(), end_state=StageState())
+    return build_film_html([segment], [], characters_code=characters,
                            style_css='.edu-stage{background:#fdfaf3}')
 
 
@@ -71,7 +85,7 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             self.assertAlmostEqual(await page.evaluate('EduFilm.instantiate("a").cueEnd("顶点")'), 3.35, 2)
             msg = await page.evaluate('(()=>{try{EduFilm.instantiate("a").cue("开口")}catch(e){return e.message}})()')
             self.assertIn('开口', msg)
-            self.assertIn('a', msg)
+            self.assertIn('第 a 段', msg)
 
     async def test_start_state_applied_and_end_state_measured(self):
         async with studio_page(core_film()) as (page, _):
@@ -93,6 +107,50 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
         async with studio_page(core_film(code=MUTATING_PART)) as (page, errors):
             await page.evaluate('t=>window.renderFrame(t)', 1.5)
             self.assertTrue(any('角色零件形状被修改' in e for e in await page.evaluate('window.studioDiagnostics')))
+
+    async def test_part_groups_may_only_rotate_about_their_pivot(self):
+        for code in (SCALING_PART, MOVING_PART):
+            async with studio_page(core_film(code=code)) as (page, _):
+                await page.evaluate('t=>window.renderFrame(t)', 2.5)
+                diagnostics = await page.evaluate('window.studioDiagnostics')
+                self.assertTrue(any('角色零件形状被修改' in e for e in diagnostics), diagnostics)
+        async with studio_page(core_film()) as (page, _):  # core pose() rotates arm_r by -60 degrees
+            for t in (1.5, 4.0, 0):
+                await page.evaluate('t=>window.renderFrame(t)', t)
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+
+    async def test_canvas_frame_does_not_depend_on_seek_history(self):
+        pixels = '''Array.from(document.querySelector('.edu-stage canvas').getContext('2d')
+            .getImageData(0, 0, 200, 100).data).join(',')'''
+        async with studio_page(plain_film(CANVAS)) as (page, errors):
+            seen = {}
+            for t in (0, 0.5, 1.5, 2.5, 0.5, 0, 1.5):
+                await page.evaluate('t=>window.renderFrame(t)', t)
+                frame = (await page.evaluate(pixels), await page.screenshot())
+                if t in seen:
+                    self.assertEqual(seen[t][0], frame[0], f'canvas pixels changed at {t}')
+                    self.assertTrue(same_png(seen[t][1], frame[1]), t)
+                seen[t] = frame
+            self.assertNotEqual(seen[0][0], seen[2.5][0])
+            self.assertEqual(errors, [])
+
+    async def test_segments_are_built_with_loaded_fonts(self):
+        async with studio_page(plain_film(TEXT_WIDTH)) as (page, _):
+            built, now = await page.evaluate('''(()=>{const w=document.querySelector('.edu-stage .edu-world');
+                return [+w.dataset.builtWidth, w.querySelector('text').getComputedTextLength()]})()''')
+            self.assertAlmostEqual(built, now, 1)
+            self.assertAlmostEqual(await page.evaluate('+EduFilm.instantiate("a").root.dataset.builtWidth'), now, 1)
+
+    async def test_api_examples_run_as_segment_code(self):
+        # Blocks calling defineCharacter are character code; every other block is a segment body.
+        blocks = re.findall(r'```js\n(.*?)```', API_MD.read_text(encoding='utf-8'), re.S)
+        characters = '\n'.join(b for b in blocks if 'defineCharacter' in b)
+        body = '\n'.join(b for b in blocks if 'defineCharacter' not in b)
+        self.assertTrue(characters and body)
+        async with studio_page(plain_film(body, characters=characters, duration=4.5)) as (page, errors):
+            await page.evaluate('t=>window.renderFrame(t)', 4.0)
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+            self.assertEqual(errors, [])
 
     async def test_no_autonomous_playback(self):
         async with studio_page(core_film()) as (page, _):

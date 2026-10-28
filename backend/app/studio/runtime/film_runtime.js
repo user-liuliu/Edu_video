@@ -29,9 +29,36 @@
     return el;
   }
 
-  // Ask for every font face the stage actually uses, with the text it shows, so the right
-  // unicode-range subsets are loaded before the first frame.
-  function loadFonts() {
+  // Text fonts shipped in fonts.css (KaTeX loads its own faces when formulas render).
+  var TEXT_FAMILIES = ['Noto Sans SC', 'LXGW WenKai'];
+
+  // Before any segment is built: load every weight/style of the shipped text fonts for all
+  // characters the film's inline scripts contain (segment code, character code, narration)
+  // plus printable ASCII, so build-time measurements already use the real metrics.
+  function preloadFonts() {
+    var sample = ' ';
+    for (var c = 33; c < 127; c++) sample += String.fromCharCode(c);
+    var seen = new Set(sample);
+    Array.prototype.forEach.call(document.querySelectorAll('script:not([src])'), function (script) {
+      Array.from(script.textContent).forEach(function (ch) {
+        if (ch.trim() && !seen.has(ch)) { seen.add(ch); sample += ch; }
+      });
+    });
+    var keys = new Set();
+    document.fonts.forEach(function (face) {
+      var family = face.family.replace(/^["']|["']$/g, '');
+      if (TEXT_FAMILIES.indexOf(family) >= 0) {
+        keys.add(face.style + ' ' + face.weight + ' 16px "' + family + '"');
+      }
+    });
+    var loads = [];
+    keys.forEach(function (key) { loads.push(document.fonts.load(key, sample)); });
+    return Promise.all(loads).then(function () { return document.fonts.ready; });
+  }
+
+  // After building: also request whatever font the stage text actually uses (e.g. a family
+  // from style_css), with the text it shows, so the right unicode-range subsets are loaded.
+  function loadStageFonts() {
     var wanted = new Map();
     var walker = document.createTreeWalker(stage, NodeFilter.SHOW_TEXT);
     for (var node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -61,45 +88,58 @@
     });
   }
 
+  function fontProblem(error) {
+    diag('字体加载失败：' + (error && error.message || error));
+  }
+
+  function build() {
+    var size = {width: film.width, height: film.height};
+    stage = box('edu-stage', 'position:relative;width:' + film.width + 'px;height:' + film.height + 'px;overflow:hidden');
+    if (!getComputedStyle(stage).backgroundColor || getComputedStyle(stage).backgroundColor === 'rgba(0, 0, 0, 0)') {
+      stage.style.backgroundColor = '#ffffff';
+    }
+    sandbox = box('edu-sandbox', 'position:absolute;left:0;top:0;width:' + film.width + 'px;height:' + film.height + 'px;overflow:hidden;opacity:0;visibility:hidden;pointer-events:none;z-index:-1');
+    var starts = {};
+    film.timeline.forEach(function (item) { if (item.id !== undefined) starts[item.id] = item.start; });
+    var timeline = gsap.timeline({paused: true});
+    film.segments.forEach(function (meta) {
+      if (typeof starts[meta.id] !== 'number') throw new Error('时间线里没有第 ' + meta.id + ' 段');
+      var instance;
+      try {
+        instance = EduStudio._createSegment(meta, stage, size);
+      } catch (error) {
+        diag(error.message);
+        instance = emptySegment(meta);
+      }
+      instance.tl.paused(false);
+      timeline.add(instance.tl, starts[meta.id]);
+      layers.push({id: meta.id, start: starts[meta.id], instance: instance});
+    });
+    timeline.set({}, {}, film.duration);
+    // Same preroll as each segment, with events on, so frame 0 has every ratio-0 onUpdate.
+    timeline.seek(film.duration, false);
+    timeline.seek(0, false);
+    master = timeline;
+    renderFrame(0);
+    void stage.offsetHeight;
+    return loadStageFonts().catch(fontProblem);
+  }
+
   function boot() {
     try {
       film = readFilm();
-      var size = {width: film.width, height: film.height};
-      stage = box('edu-stage', 'position:relative;width:' + film.width + 'px;height:' + film.height + 'px;overflow:hidden');
-      if (!getComputedStyle(stage).backgroundColor || getComputedStyle(stage).backgroundColor === 'rgba(0, 0, 0, 0)') {
-        stage.style.backgroundColor = '#ffffff';
-      }
-      sandbox = box('edu-sandbox', 'position:absolute;left:0;top:0;width:' + film.width + 'px;height:' + film.height + 'px;overflow:hidden;opacity:0;visibility:hidden;pointer-events:none;z-index:-1');
-      var starts = {};
-      film.timeline.forEach(function (item) { if (item.id !== undefined) starts[item.id] = item.start; });
-      master = gsap.timeline({paused: true});
-      film.segments.forEach(function (meta) {
-        var instance;
-        try {
-          instance = EduStudio._createSegment(meta, stage, size);
-        } catch (error) {
-          diag(error.message);
-          instance = emptySegment(meta);
-        }
-        instance.tl.paused(false);
-        master.add(instance.tl, starts[meta.id]);
-        layers.push({id: meta.id, start: starts[meta.id], instance: instance});
-      });
-      master.set({}, {}, film.duration);
-      master.seek(film.duration, true);
-      master.seek(0, true);
-      renderFrame(0);
-      void stage.offsetHeight;
-      loadFonts().catch(function (error) {
-        diag('字体加载失败：' + (error && error.message || error));
-      }).then(function () {
-        renderFrame(0);
-        resolveReady(true);
-      });
     } catch (error) {
       diag('影片启动失败：' + (error && error.message || error));
       rejectReady(error);
+      return;
     }
+    preloadFonts().catch(fontProblem).then(build).then(function () {
+      renderFrame(0);
+      resolveReady(true);
+    }, function (error) {
+      diag('影片启动失败：' + (error && error.message || error));
+      rejectReady(error);
+    });
   }
 
   function emptySegment(meta) {
@@ -115,7 +155,7 @@
 
   // Checks only: a fresh, isolated copy of one segment, built in an invisible sandbox.
   function instantiate(id) {
-    if (!film) throw new Error('影片还没有启动');
+    if (!master) throw new Error('影片还没有启动');
     var meta = film.segments.filter(function (s) { return s.id === id; })[0];
     if (!meta) throw new Error('没有这一段：' + id);
     return EduStudio._createSegment(meta, sandbox, {width: film.width, height: film.height}).api;

@@ -83,6 +83,16 @@
     var css = getComputedStyle(el).transform;
     return css && css !== 'none' ? new DOMMatrix(css) : new DOMMatrix();
   }
+  // True when the part's own transform is a pure rotation about its pivot (px, py):
+  // matrix(cos, sin, -sin, cos, px - px*cos + py*sin, py - px*sin - py*cos).
+  var LINEAR_EPS = 1e-3, OFFSET_EPS = 0.02;  // GSAP rounds the written matrix
+  function rotatesAboutPivot(part) {
+    var m = matrixOf(part.el), px = part.pivot[0], py = part.pivot[1];
+    if (Math.abs(m.a - m.d) > LINEAR_EPS || Math.abs(m.b + m.c) > LINEAR_EPS) return false;
+    if (Math.abs(m.a * m.d - m.b * m.c - 1) > LINEAR_EPS) return false;
+    return Math.abs(m.e - (px - px * m.a + py * m.b)) <= OFFSET_EPS &&
+      Math.abs(m.f - (py - px * m.b - py * m.a)) <= OFFSET_EPS;
+  }
   function svgEl(tag, attrs) {
     var el = document.createElementNS(NS, tag);
     for (var k in attrs) el.setAttribute(k, attrs[k]);
@@ -191,7 +201,7 @@
         if (pivot.length !== 2 || !isFinite(pivot[0]) || !isFinite(pivot[1])) {
           throw fail('角色 ' + name + ' 的零件 ' + partName + ' 的 data-pivot 必须写成 "x,y"');
         }
-        parts.set(partName, {el: el, origin: pivot[0] + ' ' + pivot[1]});
+        parts.set(partName, {el: el, pivot: pivot, origin: pivot[0] + ' ' + pivot[1]});
       });
       if (!parts.size) throw fail('角色 ' + name + ' 没有任何零件（data-part）');
       function part(partName) {
@@ -202,6 +212,8 @@
       function shapeString() {
         var out = [];
         parts.forEach(function (p, partName) {
+          // A part group may only rotate about its pivot; scale, skew or offset change its shape.
+          out.push(partName + (rotatesAboutPivot(p) ? ':rigid' : ':deformed'));
           Array.prototype.forEach.call(p.el.querySelectorAll('*'), function (node) {
             out.push(partName + '>' + node.tagName);
             SHAPE_ATTRS.forEach(function (attr) {
@@ -286,6 +298,11 @@
       Object.keys(initial.pose || {}).forEach(function (partName) {
         var p = part(partName);
         gsap.set(p.el, {rotation: finite(initial.pose[partName], '零件 ' + partName + ' 的角度'), svgOrigin: p.origin});
+      });
+      parts.forEach(function (p, partName) {
+        if (!rotatesAboutPivot(p)) {
+          throw fail('角色 ' + name + ' 的零件 ' + partName + ' 的 <g> 上有平移或缩放，位置要写在里面的形状上');
+        }
       });
 
       actors.set(name, {
@@ -390,10 +407,11 @@
       });
     }
     // Initialise every tween in time order once, so recorded start values never depend on
-    // which time is visited first.
-    tl.seek(tl.duration(), true);
+    // which time is visited first. Events stay on: seeking back fires each tween's ratio-0
+    // onUpdate, so canvas drawn in onUpdate shows the same frame 0 as after any later visit.
+    tl.seek(tl.duration(), false);
     checkGeometry();
-    tl.seek(0, true);
+    tl.seek(0, false);
 
     return {
       id: id,

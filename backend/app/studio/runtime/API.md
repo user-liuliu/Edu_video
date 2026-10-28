@@ -7,23 +7,30 @@
 - 每一帧只由时间决定。所有动画都放在 `ctx.tl` 上，运行时只通过 seek 定位，不会自己播放。
 - `build(ctx)` 同步执行，不能用定时器、`requestAnimationFrame`、`Math.random`、`Date`、网络请求。需要随机数用 `ctx.random()`。
 - 不要用 `gsap.to/from/timeline` 直接建动画（不会播放，会记一条诊断）；用 `ctx.tl.to/from/fromTo/set`。`gsap.set` 可以用，会立即生效，作为本段的初始状态。
-- Canvas 或 three.js 只能在 tween 的 `onUpdate` 里按当前进度重画整张画面。
+- Canvas 或 three.js 只能在 tween 的 `onUpdate` 里按当前进度重画整张画面。每块画布只由一个 tween 来画，这个 tween 每次都要把整块画布重画一遍。
 - 元素用 `data-edu-id="标签"` 命名，高亮和 `endState` 都按这个标签找元素。SVG 里的 `id`（渐变、滤镜、clipPath）要带上段 id 前缀，避免和别的段重名。
 - 可用的库：`gsap`（含 DrawSVGPlugin、MorphSVGPlugin、MotionPathPlugin、SplitText）、`katex`、`THREE`、`rough`。字体：`"Noto Sans SC"`（400、700）、`"LXGW WenKai"`。
 
-## 注册
+## 段代码
 
-### `EduStudio.defineSegment(id, build)`
-注册一段。`build(ctx)` 只往 `ctx.tl` 上安排动画。整片 HTML 会自动生成这一行，段代码只写函数体。
+你写的段代码只是一个函数体，里面可以直接用 `ctx`。程序会把它包成 `EduStudio.defineSegment("段id", function (ctx) { 你的代码 })`，所以段代码里不要再写 `defineSegment`，也不要写 `function (ctx)`。本文的示例除了 `defineCharacter` 那一个，其余都是段代码，可以直接写进函数体。这些示例前后相接，后面的示例会用到前面定义的变量。
 ```js
-EduStudio.defineSegment('a', function (ctx) { ctx.tl.to(ctx.$('#dot'), {x: 200, duration: 1}, 0.5); });
+ctx.svg.innerHTML = '<circle data-edu-id="dot" cx="640" cy="360" r="20" fill="#c53030"/>';
+ctx.tl.to(ctx.$('[data-edu-id="dot"]'), {x: 200, duration: 1}, 0.5);
 ```
 
+## 角色定义
+
 ### `EduStudio.defineCharacter(name, factory)`
-定义角色。`factory(g, params)` 往 SVG 组 `g` 里画零件，角色脚底放在 (0,0)。每个零件是 `<g data-part="名字" data-pivot="x,y">`，pose 时绕 pivot 转动。零件自己的 `<g>` 上不要写 transform，位置写在里面的形状上。表情是带 `data-expression="名字"` 的组，不用的先设 `style.visibility='hidden'`。零件里形状的 `d`、坐标、尺寸和 transform 创建后不能再改，改了会记"角色零件形状被修改"。
+角色代码不属于段代码，它单独放一处，要写完整的 `defineCharacter` 调用。`factory(g, params)` 往 SVG 组 `g` 里画零件，角色脚底放在 (0,0)。每个零件是 `<g data-part="名字" data-pivot="x,y">`，零件只能绕 pivot 转动（pose）。零件自己的 `<g>` 上不要写 transform，位置写在里面的形状上。表情是带 `data-expression="名字"` 的组，不用的先设 `style.visibility='hidden'`。创建以后，零件的 `<g>` 不能平移、缩放或倾斜，里面形状的 `d`、坐标、尺寸和 transform 也不能改，否则会记"角色零件形状被修改"。
 ```js
 EduStudio.defineCharacter('kr', function (g, params) {
-  g.innerHTML = '<g data-part="arm_r" data-pivot="0,-105"><path d="M0,-105 L45,-80" stroke="#333"/></g>';
+  const c = params.color || '#333';
+  g.innerHTML =
+    '<g data-part="body" data-pivot="0,-60"><path d="M0,-120 L0,0" stroke="' + c + '" stroke-width="8"/></g>' +
+    '<g data-part="arm_r" data-pivot="0,-105"><path d="M0,-105 L45,-80" stroke="' + c + '" stroke-width="8"/></g>' +
+    '<g data-expression="smile"><path d="M-10,-140 Q0,-130 10,-140" stroke="' + c + '" fill="none"/></g>' +
+    '<g data-expression="sad" style="visibility:hidden"><path d="M-10,-133 Q0,-143 10,-133" stroke="' + c + '" fill="none"/></g>';
 });
 ```
 
@@ -32,10 +39,9 @@ EduStudio.defineCharacter('kr', function (g, params) {
 ### 舞台
 - `ctx.root`：本段内容所在的元素，跟着镜头移动。HTML 元素（如 KaTeX 公式）放在这里。
 - `ctx.svg`：覆盖整个画布的 `<svg>`，viewBox 等于画布尺寸。
-- `ctx.width`、`ctx.height`：画布宽高（像素）。
+- `ctx.width`、`ctx.height`：画布宽高（像素）。`ctx.id`：本段 id。
 - `ctx.$(sel) -> Element[]`：只在 `ctx.root` 内查找，返回数组；一个都找不到时抛错。
 ```js
-ctx.svg.innerHTML = '<circle data-edu-id="dot" cx="640" cy="360" r="20"/>';
 const dot = ctx.$('[data-edu-id="dot"]')[0];
 ```
 
@@ -74,15 +80,18 @@ Actor 的方法：
 - `el`：角色最外层的 `<g>`；`part(name)`：零件的 `<g>`。只用来读或改颜色、透明度，不要改形状。
 ```js
 const kr = ctx.actor('kr', {color: '#2b6cb0'});
+kr.place({x: 300, y: 600, scale: 0.8});
 kr.moveTo({x: 500, y: 600}, 1, 1);
 kr.pose({arm_r: -60}, 1.2, 0.6);
-kr.expression('smile', ctx.cue('最低点'));
+kr.face(true, 2.2);
+kr.expression('sad', ctx.cue('最低点'));
+kr.part('arm_r').setAttribute('opacity', '0.9');
 ```
 
 ### 结束状态
 `ctx.endState({keep: [标签...]})`：声明本段结束时留给下一段的元素（`data-edu-id` 标签）。镜头和角色的结束状态由运行时在最后一帧实际测量，不用声明。
 ```js
-ctx.endState({keep: ['curve', 'vertex']});
+ctx.endState({keep: ['dot']});
 ```
 
 ## 检查用（段代码不要调用）
