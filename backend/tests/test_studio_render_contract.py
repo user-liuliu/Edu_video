@@ -79,8 +79,26 @@ def test_inspect_result_shape():
 
 # ---- pure analysis helpers ----------------------------------------------------------------
 
-def box(i, x, y, w, h, label='[data-edu-id="t"]', inside=()):
-    return {'i': i, 'x': x, 'y': y, 'w': w, 'h': h, 'label': label, 'inside': list(inside)}
+def box(i, x, y, w, h, label='[data-edu-id="t"]', inside=(), world=None, camera=False):
+    """Screen box (x, y, w, h) after the camera; `world` is the box before it (default: same)."""
+    wx, wy, ww, wh = world or (x, y, w, h)
+    return {'i': i, 'x': x, 'y': y, 'w': w, 'h': h, 'wx': wx, 'wy': wy, 'ww': ww, 'wh': wh,
+            'camera': camera, 'label': label, 'inside': list(inside)}
+
+
+def test_bounds_measures_canvas_before_the_camera_and_subtitles_after_it():
+    from app.studio.inspect import box_issues
+    run = lambda b: box_issues([{'segment': 'a', 't': 1.5, 'local': 1.5, 'boxes': [b]}], {'bounds'}, 1280, 720)
+    # A push-in carries an edge title off screen: inside the canvas before the camera, no issue.
+    assert run(box(0, -60, -40, 300, 80, world=(80, 80, 190, 50), camera=True)) == []
+    # Laid out past the right edge before any camera move: reported, with the offstage hint.
+    issues = run(box(0, 1100, 100, 400, 40, '[data-edu-id="wide"]'))
+    assert len(issues) == 1 and '超出画布' in issues[0].message and 'data-edu-offstage' in issues[0].message
+    # The camera brings text down into the subtitle zone: reported and the camera is named.
+    issues = run(box(0, 500, 640, 200, 40, world=(520, 560, 150, 30), camera=True))
+    assert len(issues) == 1 and '字幕区' in issues[0].message and '镜头' in issues[0].message
+    # Pushed completely off the visible canvas below: not a subtitle problem.
+    assert run(box(0, 500, 800, 200, 40, world=(520, 560, 150, 30), camera=True)) == []
 
 
 def test_box_issues_name_segment_time_element_and_reason():
@@ -206,6 +224,53 @@ async def test_studio_endpoints_run_the_studio_worker(service, monkeypatch):
         assert r.status_code == 200 and base64.b64decode(r.json()['mp4_base64']) == b'mp4'
         assert r.json()['metadata']['duration'] == 2.0
     assert calls == [('-m', 'renderer.studio_worker', 'inspect'), ('-m', 'renderer.studio_worker', 'render')]
+    assert not service.busy
+
+
+async def test_audio_base64_cap_matches_the_decoded_cap():
+    import math
+    from app.studio.render_contract import MAX_AUDIO_BYTES
+    limit = RenderRequest.model_fields['audio_base64'].metadata
+    assert any(getattr(m, 'max_length', None) == math.ceil(MAX_AUDIO_BYTES / 3) * 4 for m in limit)
+
+
+def test_diagnostic_issues_and_timeout_issue():
+    from app.studio.inspect import diagnostic_issues, timeout_issue
+    issues = diagnostic_issues([{'segment': 'a', 'message': '第 a 段：构建失败：坏了'},
+                                {'segment': 'a', 'message': '第 a 段：角色零件形状被修改（kr）'}],
+                               ['boom', 'boom'], {'第 a 段：构建失败：坏了': 1.5})
+    assert [(i.code, i.segment, i.t) for i in issues] == [('runtime', 'a', 1.5), ('geometry', 'a', None),
+                                                          ('runtime', None, None)]
+    issue = timeout_issue('b', 'paint', 2.0, 5)
+    assert (issue.code, issue.segment, issue.t) == ('runtime', 'b', 2.0)
+    assert issue.message.startswith('第 b 段：绘制超时，可能有死循环')
+    assert timeout_issue('a', 'build', None, 30).message.startswith('第 a 段：构建超时，可能有死循环')
+    generic = timeout_issue(None, None, None, 30)
+    assert generic.segment is None and '死循环' in generic.message
+
+
+async def test_studio_runtime_error_is_reported(service, monkeypatch):
+    issues = [{'code': 'runtime', 'segment': 'a', 't': None, 'element': None, 'message': '第 a 段：构建失败：坏了'}]
+
+    class Process:
+        returncode = 2
+
+        async def wait(self):
+            return 2
+
+    async def launch(*args, **kwargs):
+        (Path(args[-1]) / 'error.json').write_text(json.dumps(
+            {'code': 'studio_runtime', 'message': '动画运行出错，不能导出', 'issues': issues}))
+        return Process()
+
+    async def stop(*args):
+        pass
+    monkeypatch.setattr(service.asyncio, 'create_subprocess_exec', launch)
+    monkeypatch.setattr(service, 'terminate_process', stop)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=service.app), base_url='http://renderer') as http:
+        r = await http.post('/studio/render', json=render_payload(runtime_digest()))
+    assert r.status_code == 422 and r.json()['detail']['code'] == 'studio_runtime'
+    assert r.json()['detail']['issues'] == issues
     assert not service.busy
 
 

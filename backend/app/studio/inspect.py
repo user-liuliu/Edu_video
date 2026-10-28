@@ -22,9 +22,9 @@ SAMPLES_PER_SEGMENT = 10  # equal parts: 11 points with both ends
 END_EPSILON = 1e-4  # s: "the last frame" of a segment, still inside its own slot
 MAX_DETERMINISM_REPORTS = 3  # per segment
 
-# Instantiate each segment in the sandbox once: measured states, cue times of the scripted
-# highlights and the recorded emphasis calls. Everything is destroyed again.
-_COLLECT = r'''(specs) => specs.map((spec) => {
+# Instantiate one segment in the sandbox: measured states, cue times of the scripted
+# highlights and the recorded emphasis calls. Always destroyed again.
+_COLLECT = r'''(spec) => {
   const out = {id: spec.id};
   let f;
   try { f = EduFilm.instantiate(spec.id); } catch (e) { out.error = String(e && e.message || e); return out; }
@@ -38,23 +38,62 @@ _COLLECT = r'''(specs) => specs.map((spec) => {
     out.records = f.highlights();
   } finally { f.destroy(); }
   return out;
-})'''
+}'''
 
-# Visit each (segment, film time) and measure the visible text and formula boxes in that
-# segment's layer on the real stage (captions live outside the layers). Diagnostics that
-# first appear while visiting a time get that time.
-_SWEEP = r'''(args) => {
-  const [samples, measure] = args;
+# Draw one film time and (when asked) measure every visible text in that segment's layer on
+# the real stage: SVG <text>, KaTeX formulas, [data-edu-text], and every HTML element with a
+# text node of its own (measured over that text, so a wide block is not mistaken for it).
+# Each box comes twice: on screen (after the camera) and in stage coordinates before the
+# camera (inside .edu-world). Captions live outside the layers. New diagnostics are returned.
+_SAMPLE = r'''(s) => {
   const diags = window.studioDiagnostics;
-  const firstSeen = {};
+  const before = diags.length;
+  window.renderFrame(s.t);
+  const fresh = diags.slice(before).map((d) => d.message);
+  if (!s.measure) return {fresh: fresh, boxes: null};
   const stage = document.querySelector('.edu-stage');
-  const SELECTOR = 'text, .katex, [data-edu-text]';
-  function visible(el, layer) {
+  const layer = stage.querySelector('.edu-layer[data-segment="' + CSS.escape(s.segment) + '"]');
+  if (!layer || getComputedStyle(layer).visibility === 'hidden') return {fresh: fresh, boxes: null};
+  const world = layer.querySelector('.edu-world');
+  const ref = stage.getBoundingClientRect();
+  const wr = world.getBoundingClientRect();
+  const kx = wr.width / world.offsetWidth, ky = wr.height / world.offsetHeight;
+  const camera = Math.abs(kx - 1) > 1e-3 || Math.abs(ky - 1) > 1e-3 ||
+    Math.abs(wr.left - ref.left) > 0.5 || Math.abs(wr.top - ref.top) > 0.5;
+  const SPECIAL = 'text, .katex, [data-edu-text]';
+  const SKIP = 'script, style, defs, title, desc, .edu-caption, .edu-subtitles';
+  function ownText(el) {
+    return Array.from(el.childNodes).filter((n) => n.nodeType === 3 && n.nodeValue.trim());
+  }
+  const candidates = [];
+  layer.querySelectorAll('*').forEach((el) => {
+    if (el.closest(SKIP)) return;
+    const special = el.matches(SPECIAL);
+    if (!special && !ownText(el).length) return;
+    const outer = el.parentElement && el.parentElement.closest(SPECIAL);
+    if (outer && layer.contains(outer)) return;  // measured as part of its text or formula
+    candidates.push({el: el, special: special});
+  });
+  function visible(el) {
     for (let n = el; n && n !== layer.parentNode; n = n.parentElement) {
       const css = getComputedStyle(n);
       if (css.display === 'none' || css.visibility === 'hidden' || parseFloat(css.opacity) === 0) return false;
     }
     return true;
+  }
+  function rectOf(c) {
+    if (c.special) return c.el.getBoundingClientRect();
+    let box = null;
+    ownText(c.el).forEach((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const r = range.getBoundingClientRect();
+      if (!(r.width > 0 && r.height > 0)) return;
+      if (!box) { box = {left: r.left, top: r.top, right: r.right, bottom: r.bottom}; return; }
+      box.left = Math.min(box.left, r.left); box.top = Math.min(box.top, r.top);
+      box.right = Math.max(box.right, r.right); box.bottom = Math.max(box.bottom, r.bottom);
+    });
+    return box ? {left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top} : null;
   }
   function snippet(el) {
     const source = el.classList && el.classList.contains('katex') && el.querySelector('.katex-html') || el;
@@ -66,33 +105,20 @@ _SWEEP = r'''(args) => {
     const kind = el.classList && el.classList.contains('katex') ? '公式' : el.tagName.toLowerCase();
     const named = el.parentElement && el.parentElement.closest('[data-edu-id]');
     const what = kind + '「' + snippet(el) + '」';
-    return named ? '[data-edu-id="' + named.getAttribute('data-edu-id') + '"] 里的 ' + what : what;
+    return named && layer.contains(named) ? '[data-edu-id="' + named.getAttribute('data-edu-id') + '"] 里的 ' + what : what;
   }
-  const out = [];
-  for (const s of samples) {
-    const before = diags.length;
-    window.renderFrame(s.t);
-    for (let i = before; i < diags.length; i++) {
-      if (!(diags[i].message in firstSeen)) firstSeen[diags[i].message] = s.t;
-    }
-    if (!measure) continue;
-    const layer = stage.querySelector('.edu-layer[data-segment="' + CSS.escape(s.segment) + '"]');
-    if (!layer || getComputedStyle(layer).visibility === 'hidden') continue;
-    const ref = stage.getBoundingClientRect();
-    const els = Array.from(layer.querySelectorAll(SELECTOR)).filter((el) =>
-      !el.closest('[data-edu-offstage]') && visible(el, layer));
-    const boxes = [];
-    els.forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      if (!(r.width > 0 && r.height > 0)) return;
-      const inside = [];
-      els.forEach((other, j) => { if (j !== i && other.contains(el)) inside.push(j); });
-      boxes.push({i: i, x: r.left - ref.left, y: r.top - ref.top, w: r.width, h: r.height,
-        label: label(el), inside: inside});
-    });
-    out.push({segment: s.segment, t: s.t, local: s.local, boxes: boxes});
-  }
-  return {samples: out, firstSeen: firstSeen};
+  const kept = candidates.filter((c) => !c.el.closest('[data-edu-offstage]') && visible(c.el));
+  const boxes = [];
+  kept.forEach((c, i) => {
+    const r = rectOf(c);
+    if (!r || !(r.width > 0 && r.height > 0)) return;
+    const inside = [];
+    kept.forEach((other, j) => { if (j !== i && other.el.contains(c.el)) inside.push(j); });
+    boxes.push({i: i, x: r.left - ref.left, y: r.top - ref.top, w: r.width, h: r.height,
+      wx: (r.left - wr.left) / kx, wy: (r.top - wr.top) / ky, ww: r.width / kx, wh: r.height / ky,
+      camera: camera, label: label(c.el), inside: inside});
+  });
+  return {fresh: fresh, boxes: boxes};
 }'''
 
 
@@ -106,6 +132,32 @@ def _when(segment: str, t: float, local: float) -> str:
 
 # ---- pure analysis ------------------------------------------------------------------------
 
+def _bounds_problems(b: dict, width: int, height: int, caption_top: int) -> list[tuple[str, str]]:
+    """Off-canvas is judged in stage coordinates before the camera (``wx``..), so a camera
+    push-in that crops text is fine; the subtitle zone after the camera (``x``..), for boxes
+    still visible on the canvas."""
+    problems = []
+    wx, wy = b.get('wx', b['x']), b.get('wy', b['y'])
+    wr, wb = wx + b.get('ww', b['w']), wy + b.get('wh', b['h'])
+    sides = [name for name, over in (('左', -wx), ('上', -wy), ('右', wr - width), ('下', wb - height))
+             if over > BOX_TOLERANCE]
+    if sides:
+        problems.append(('canvas', (
+            f'（镜头移动前的外框 x {_fmt(wx)}–{_fmt(wr)}，y {_fmt(wy)}–{_fmt(wb)}）超出画布（{"、".join(sides)}边），'
+            f'请移回 {width}×{height} 的画布里；如果是故意放在画外再移进来或移出去的文字，'
+            '请给它加 data-edu-offstage')))
+    right, bottom = b['x'] + b['w'], b['y'] + b['h']
+    on_canvas = b['x'] < width and right > 0 and b['y'] < height and bottom > 0
+    if on_canvas and bottom > caption_top + BOX_TOLERANCE:
+        camera = '镜头移动后，' if b.get('camera') else ''
+        problems.append(('captions', (
+            f'（画面上的外框 x {_fmt(b["x"])}–{_fmt(right)}，y {_fmt(b["y"])}–{_fmt(bottom)}）{camera}'
+            f'压进了底部字幕区（y {caption_top} 以下是字幕区），'
+            + (f'请调整镜头或把文字往上放，让它在画面上停在 y {caption_top} 以上' if camera
+               else f'请往上放到 y {caption_top} 以上'))))
+    return problems
+
+
 def box_issues(samples: list[dict], checks: set[str], width: int, height: int) -> list[Issue]:
     """``bounds`` and ``overlap`` issues from measured boxes; one issue per element (pair)
     and kind of problem, at the first time it was seen."""
@@ -116,22 +168,13 @@ def box_issues(samples: list[dict], checks: set[str], width: int, height: int) -
         segment, t, local, boxes = sample['segment'], sample['t'], sample['local'], sample['boxes']
         if 'bounds' in checks:
             for b in boxes:
-                right, bottom = b['x'] + b['w'], b['y'] + b['h']
-                sides = [name for name, over in (('左', -b['x']), ('上', -b['y']), ('右', right - width),
-                                                  ('下', bottom - height)) if over > BOX_TOLERANCE]
-                where = (f'（外框 x {_fmt(b["x"])}–{_fmt(right)}，y {_fmt(b["y"])}–{_fmt(bottom)}）')
-                problems = []
-                if sides:
-                    problems.append(('canvas', f'超出画布（{"、".join(sides)}边），请移回 {width}×{height} 的画布里'))
-                if bottom > caption_top + BOX_TOLERANCE and b['y'] < height:
-                    problems.append(('captions', f'压进了底部字幕区（y {caption_top} 以下是字幕区），请往上放到 y {caption_top} 以上'))
-                for kind, text in problems:
+                for kind, text in _bounds_problems(b, width, height, caption_top):
                     key = ('bounds', segment, b['label'], kind)
                     if key in seen:
                         continue
                     seen.add(key)
                     issues.append(Issue(code='bounds', segment=segment, t=t, element=b['label'],
-                                        message=f'{_when(segment, t, local)}，{b["label"]}{where}{text}'))
+                                        message=f'{_when(segment, t, local)}，{b["label"]}{text}'))
         if 'overlap' in checks:
             for i, a in enumerate(boxes):
                 for b in boxes[i + 1:]:
@@ -212,6 +255,43 @@ def state_issues(segment: str, declared: dict, start: StageState, end: StageStat
     return issues
 
 
+def diagnostic_issues(diagnostics: list[dict], errors: list[str],
+                      first_seen: dict[str, float] | None = None) -> list[Issue]:
+    """``studioDiagnostics`` entries (``geometry`` for changed character parts, else
+    ``runtime``) and page errors, as issues; ``first_seen`` gives the film time of a message."""
+    first_seen = first_seen or {}
+    issues = []
+    for d in diagnostics:
+        message = str(d.get('message', ''))
+        issues.append(Issue(code='geometry' if GEOMETRY_MARK in message else 'runtime',
+                            segment=d.get('segment'), t=first_seen.get(message), element=None,
+                            message=message))
+    for error in dict.fromkeys(errors):
+        issues.append(Issue(code='runtime', segment=None, t=None, element=None,
+                            message=f'页面脚本出错：{str(error)[:500]}'))
+    return issues
+
+
+def timeout_issue(segment: str | None, phase: str | None, t: float | None, seconds: float) -> Issue:
+    """The page stopped answering; ``segment``/``phase`` come from ``window.__studioBusy``."""
+    if segment:
+        what = '构建' if phase == 'build' else '绘制'
+        where = '' if t is None else f'（整片 {_fmt(t)} 秒）'
+        message = (f'第 {segment} 段：{what}超时，可能有死循环：{what}{where}超过 {seconds:g} 秒没有结束，'
+                   '已被强制停止。请检查 while/for 循环的结束条件'
+                   + ('，以及 ctx.paint 里的绘制函数' if what == '绘制' else ''))
+    else:
+        message = (f'整片超过 {seconds:g} 秒没有响应，可能有死循环，已被强制停止'
+                   '（没能确定是哪一段）。请检查各段代码里 while/for 循环的结束条件')
+    return Issue(code='runtime', segment=segment, t=t if segment else None, element=None, message=message)
+
+
+def from_timeout(error) -> list[Issue]:
+    """Issues for a ``page.StudioTimeout``: what the runtime had reported, then the timeout."""
+    return (diagnostic_issues(error.diagnostics, error.errors)
+            + [timeout_issue(error.segment, error.phase, error.t, error.seconds)])
+
+
 # ---- browser side -------------------------------------------------------------------------
 
 def _review_png(png: bytes) -> str:
@@ -232,9 +312,19 @@ def _same_png(first: bytes, second: bytes) -> bool:
     return same_pixels(decode(first), decode(second))
 
 
+async def _step(page, awaitable, t: float | None = None):
+    """One bounded page step; a timeout says which film time was being drawn."""
+    from app.studio.page import StudioTimeout, bounded
+    try:
+        return await bounded(page, awaitable)
+    except StudioTimeout as error:
+        error.t = t
+        raise
+
+
 async def _screenshot(page, t: float) -> bytes:
-    await page.evaluate('t => window.renderFrame(t)', t)
-    return await page.screenshot(type='png')
+    await _step(page, page.evaluate('t => window.renderFrame(t)', t), t)
+    return await _step(page, page.screenshot(type='png'), t)
 
 
 def _local_points(duration: float) -> list[float]:
@@ -267,8 +357,22 @@ async def _determinism_issues(page, segments: list[dict], starts: dict[str, floa
     return issues
 
 
+def _samples(segment: dict, start: float, collected: dict) -> list[dict]:
+    local = set(_local_points(segment['duration']))
+    local.update(r['at'] for r in collected.get('records', []) if r.get('kind') == 'highlight')
+    local.update(q['cue'] for q in collected.get('cues', []) if 'cue' in q)
+    out = []
+    for t in sorted(x for x in local if 0 <= x <= segment['duration']):
+        t = min(t, segment['duration'] - END_EPSILON)
+        out.append({'segment': segment['id'], 't': round(start + t, 6), 'local': round(t, 6)})
+    return out
+
+
 async def inspect_film(req: InspectRequest) -> InspectResult:
-    from app.studio.page import studio_page
+    """All requested checks on one page. A page that stops answering (an endless loop in a
+    segment's build or painter) is stopped and reported as a ``runtime`` issue; the issues
+    and frames found until then are kept."""
+    from app.studio.page import StudioTimeout, studio_page
 
     data = film_data(req.html)
     check_film(data, req.duration)
@@ -280,63 +384,55 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
     issues: list[Issue] = []
     states: dict[str, SegmentStates] = {}
     frames: list[dict] = []
+    first_seen: dict[str, float] = {}
+    measure = bool(checks & {'bounds', 'overlap'})
 
-    async with studio_page(req.html, width=width, height=height) as (page, errors):
-        specs = [{'id': s['id'], 'duration': s['duration'],
-                  'highlights': [h.model_dump() for h in wanted[s['id']]]} for s in segments]
-        collected = {c['id']: c for c in await page.evaluate(_COLLECT, specs)}
-        boot = await page.evaluate('window.studioDiagnostics.map(d => d.segment)')
-
-        for s in segments:
-            sid, c = s['id'], collected[s['id']]
-            if 'error' in c:
-                if sid not in boot:  # otherwise the boot diagnostic already says why
-                    issues.append(Issue(code='runtime', segment=sid, t=None, element=None,
-                                        message=f'第 {sid} 段：检查用的重新构建失败：{c["error"]}'))
-                continue
-            end_t = starts[sid] + s['duration']
-            if 'stateError' in c:
-                issues.append(Issue(code='runtime', segment=sid, t=None, element=None,
-                                    message=f'第 {sid} 段：测量开头和结尾的画面状态时出错：{c["stateError"]}'))
-            else:
-                start_state, end_state = StageState.model_validate(c['start']), StageState.model_validate(c['end'])
-                states[sid] = SegmentStates(start=start_state, end=end_state)
-                if 'states' in checks:
-                    issues += state_issues(sid, s, start_state, end_state, start_t=starts[sid], end_t=end_t)
-            if 'highlights' in checks:
-                issues += highlight_issues(sid, wanted[sid], c['cues'], c['records'], start=starts[sid])
-
-        if 'determinism' in checks:
-            issues += await _determinism_issues(page, segments, starts)
-
-        first_seen: dict[str, float] = {}
-        if checks & {'bounds', 'overlap', 'geometry'}:
-            samples = []
+    try:
+        async with studio_page(req.html, width=width, height=height) as (page, errors):
+            boot = await _step(page, page.evaluate('window.studioDiagnostics.map(d => d.segment)'))
+            collected: dict[str, dict] = {}
             for s in segments:
-                sid, c = s['id'], collected[s['id']]
-                local = set(_local_points(s['duration']))
-                local.update(r['at'] for r in c.get('records', []) if r.get('kind') == 'highlight')
-                local.update(q['cue'] for q in c.get('cues', []) if 'cue' in q)
-                for t in sorted(x for x in local if 0 <= x <= s['duration']):
-                    t = min(t, s['duration'] - END_EPSILON)
-                    samples.append({'segment': sid, 't': round(starts[sid] + t, 6), 'local': round(t, 6)})
-            swept = await page.evaluate(_SWEEP, [samples, bool(checks & {'bounds', 'overlap'})])
-            first_seen = swept['firstSeen']
-            issues += box_issues(swept['samples'], checks, width, height)
+                sid = s['id']
+                spec = {'id': sid, 'duration': s['duration'],
+                        'highlights': [h.model_dump() for h in wanted[sid]]}
+                c = collected[sid] = await _step(page, page.evaluate(_COLLECT, spec))
+                if 'error' in c:
+                    if sid not in boot:  # otherwise the boot diagnostic already says why
+                        issues.append(Issue(code='runtime', segment=sid, t=None, element=None,
+                                            message=f'第 {sid} 段：检查用的重新构建失败：{c["error"]}'))
+                    continue
+                end_t = starts[sid] + s['duration']
+                if 'stateError' in c:
+                    issues.append(Issue(code='runtime', segment=sid, t=None, element=None,
+                                        message=f'第 {sid} 段：测量开头和结尾的画面状态时出错：{c["stateError"]}'))
+                else:
+                    start_state = StageState.model_validate(c['start'])
+                    end_state = StageState.model_validate(c['end'])
+                    states[sid] = SegmentStates(start=start_state, end=end_state)
+                    if 'states' in checks:
+                        issues += state_issues(sid, s, start_state, end_state, start_t=starts[sid], end_t=end_t)
+                if 'highlights' in checks:
+                    issues += highlight_issues(sid, wanted[sid], c['cues'], c['records'], start=starts[sid])
 
-        for t in req.frame_times:
-            frames.append({'t': t, 'png_base64': _review_png(await _screenshot(page, t))})
+            if 'determinism' in checks:
+                issues += await _determinism_issues(page, segments, starts)
 
-        diagnostics = await page.evaluate('window.studioDiagnostics')
-        page_errors = list(errors)
+            if checks & {'bounds', 'overlap', 'geometry'}:
+                measured = []
+                for s in segments:
+                    for sample in _samples(s, starts[s['id']], collected[s['id']]):
+                        got = await _step(page, page.evaluate(_SAMPLE, {**sample, 'measure': measure}), sample['t'])
+                        for message in got['fresh']:
+                            first_seen.setdefault(message, sample['t'])
+                        if got['boxes'] is not None:
+                            measured.append({**sample, 'boxes': got['boxes']})
+                issues += box_issues(measured, checks, width, height)
 
-    runtime: list[Issue] = []
-    for d in diagnostics:
-        message = str(d.get('message', ''))
-        code = 'geometry' if GEOMETRY_MARK in message else 'runtime'
-        runtime.append(Issue(code=code, segment=d.get('segment'), t=first_seen.get(message),
-                             element=None, message=message))
-    for error in dict.fromkeys(page_errors):
-        runtime.append(Issue(code='runtime', segment=None, t=None, element=None,
-                             message=f'页面脚本出错：{error[:500]}'))
+            for t in req.frame_times:
+                frames.append({'t': t, 'png_base64': _review_png(await _screenshot(page, t))})
+
+            diagnostics = await _step(page, page.evaluate('window.studioDiagnostics'))
+            runtime = diagnostic_issues(diagnostics, list(errors), first_seen)
+    except StudioTimeout as error:
+        runtime = [i.model_copy(update={'t': first_seen.get(i.message, i.t)}) for i in from_timeout(error)]
     return InspectResult(issues=runtime + issues, frames=frames, states=states)

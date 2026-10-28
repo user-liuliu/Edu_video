@@ -74,6 +74,43 @@ def render_req(html):
                          audio_base64=base64.b64encode(audio).decode())
 
 
+def seg_with_code(code, duration=3.0):
+    """A one-segment film whose code is inserted after linting, so it may break the lint rules."""
+    marker = 'void "__T7__";'
+    return one_segment(marker, duration=duration).replace(marker, code)
+
+
+EDGE_TITLE = ("ctx.svg.innerHTML = '<text data-edu-id=\"title\" x=\"80\" y=\"120\" font-size=\"48\">标题文字</text>';"
+              "ctx.camera.shot({zoom: 1.6}, 1.0, 0.8);")
+OFF_CANVAS = "ctx.svg.innerHTML = '<text data-edu-id=\"gone\" x=\"1300\" y=\"200\" font-size=\"48\">画外</text>';"
+PUSHED_DOWN = ("ctx.svg.innerHTML = '<text data-edu-id=\"mid\" x=\"640\" y=\"560\" text-anchor=\"middle\" font-size=\"40\">中间</text>';"
+               "ctx.camera.shot({x: 640, y: 360, zoom: 1.5}, 1.0, 0.5);")
+LONG_DIV = ("const d = document.createElement('div'); d.setAttribute('data-edu-id', 'note');"
+            "d.style.cssText = 'position:absolute;left:900px;top:40px;font-size:40px;white-space:nowrap';"
+            "d.textContent = '这是一句很长很长的中文说明文字会超出画面右边'; ctx.root.appendChild(d);")
+TWO_DIVS = ("for (const [id, top] of [['p1', 200], ['p2', 215]]) { const d = document.createElement('div');"
+            "d.setAttribute('data-edu-id', id); d.style.cssText = 'position:absolute;left:200px;top:' + top + 'px;font-size:40px';"
+            "d.textContent = '网页里的文字'; ctx.root.appendChild(d); }")
+BUILD_LOOP = 'while (true) {}'
+PAINT_LOOP = "ctx.paint(function (t) { if (t > 1.5) { while (true) {} } });"
+THROW_BUILD = 'throw new Error("坏了");'
+THROW_PAINT = "ctx.paint(function (t) { if (t > 1) throw new Error('第二秒坏了'); });"
+NETWORK = ("try { new WebSocket('ws://127.0.0.1:18999/ws'); } catch (e) {}"
+           "try { fetch('http://127.0.0.1:18999/f').catch(function () {}); } catch (e) {}"
+           "ctx.root.insertAdjacentHTML('beforeend', '<img src=\"http://127.0.0.1:18999/i\">');")
+
+
+async def post(path, body, timeout=120):
+    import asyncio
+    import httpx
+    from renderer import app as service
+    transport = httpx.ASGITransport(app=service.app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://renderer', timeout=timeout) as http:
+        response = await asyncio.wait_for(http.post(path, content=body.model_dump_json(),
+                                                    headers={'content-type': 'application/json'}), timeout)
+    return response, service
+
+
 class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
     async def test_text_in_caption_zone_reported(self):
         result = await inspect_film(req(film_with_text_at(y=650)))
@@ -141,6 +178,78 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
             self.assertAlmostEqual(meta['duration'], 4.2, delta=1 / 30)
             self.assertEqual((meta['width'], meta['height']), (1280, 720))
             self.assertTrue((Path(tmp) / 'o.mp4').stat().st_size > 1000)
+
+
+    # ---- fix round 1 ----------------------------------------------------------------------
+    async def test_camera_push_in_is_not_off_canvas(self):
+        result = await inspect_film(req(seg_with_code(EDGE_TITLE), checks=['bounds']))
+        self.assertEqual([i for i in result.issues if i.code == 'bounds'], [])
+
+    async def test_text_off_canvas_before_the_camera_is_reported(self):
+        result = await inspect_film(req(seg_with_code(OFF_CANVAS), checks=['bounds']))
+        issue = next(i for i in result.issues if i.code == 'bounds')
+        self.assertIn('超出画布', issue.message); self.assertIn('gone', issue.element)
+
+    async def test_push_in_into_subtitle_zone_is_reported(self):
+        result = await inspect_film(req(seg_with_code(PUSHED_DOWN), checks=['bounds']))
+        issue = next(i for i in result.issues if i.code == 'bounds')
+        self.assertIn('字幕区', issue.message); self.assertIn('镜头', issue.message)
+        self.assertGreater(issue.t, 1.0)
+
+    async def test_html_text_overflow_and_overlap(self):
+        result = await inspect_film(req(seg_with_code(LONG_DIV), checks=['bounds']))
+        issue = next(i for i in result.issues if i.code == 'bounds')
+        self.assertIn('note', issue.element); self.assertIn('右', issue.message)
+        result = await inspect_film(req(seg_with_code(TWO_DIVS), checks=['overlap']))
+        issue = next(i for i in result.issues if i.code == 'overlap')
+        self.assertIn('p1', issue.message); self.assertIn('p2', issue.message)
+
+    async def test_build_loop_returns_an_issue_through_the_endpoint(self):
+        started = time.monotonic()
+        response, service = await post('/studio/inspect', req(seg_with_code(BUILD_LOOP)))
+        self.assertLess(time.monotonic() - started, 60)
+        self.assertEqual(response.status_code, 200, response.text)
+        issue = next(i for i in response.json()['issues'] if i['code'] == 'runtime')
+        self.assertEqual(issue['segment'], 'a')
+        self.assertTrue(issue['message'].startswith('第 a 段：构建超时，可能有死循环'), issue)
+        self.assertFalse(service.busy)
+
+    async def test_paint_loop_returns_an_issue(self):
+        import asyncio
+        started = time.monotonic()
+        result = await asyncio.wait_for(inspect_film(req(seg_with_code(PAINT_LOOP))), 90)
+        self.assertLess(time.monotonic() - started, 60)
+        issue = next(i for i in result.issues if i.code == 'runtime')
+        self.assertEqual(issue.segment, 'a')
+        self.assertTrue(issue.message.startswith('第 a 段：绘制超时，可能有死循环'), issue)
+
+    async def test_render_refuses_films_with_runtime_errors(self):
+        for code, word in ((THROW_BUILD, '坏了'), (THROW_PAINT, '第二秒坏了')):
+            response, service = await post('/studio/render', render_req(seg_with_code(code, duration=2.0)))
+            self.assertEqual(response.status_code, 422, response.text)
+            detail = response.json()['detail']
+            self.assertEqual(detail['code'], 'studio_runtime')
+            self.assertTrue(any(i['segment'] == 'a' and word in i['message'] for i in detail['issues']), detail)
+            self.assertFalse(service.busy)
+
+    async def test_no_network_without_the_csp_meta(self):
+        import asyncio
+        from app.studio.film import CSP
+        hits = []
+
+        async def handle(reader, writer):
+            hits.append(await reader.read(200))
+            writer.close()
+        server = await asyncio.start_server(handle, '127.0.0.1', 18999)
+        try:
+            html = seg_with_code(NETWORK)
+            meta = f'<meta http-equiv="Content-Security-Policy" content="{CSP}">'
+            self.assertIn(meta, html)
+            await inspect_film(req(html.replace(meta, ''), checks=[]))
+            await asyncio.sleep(0.5)
+        finally:
+            server.close()
+        self.assertEqual(hits, [])
 
 
 if __name__ == '__main__':

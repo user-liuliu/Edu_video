@@ -33,6 +33,16 @@
   var segments = new Map();
   var characters = new Map();
 
+  // While a segment's code runs (its build, or a seek + paint), window.__studioBusy names it,
+  // so a checker that has to stop a page stuck in an endless loop can say which segment
+  // and phase it was. Not restored when execution is terminated: then it still names the
+  // culprit.
+  function withBusy(segment, phase, fn) {
+    var saved = window.__studioBusy;
+    window.__studioBusy = {segment: segment, phase: phase};
+    try { return fn(); } finally { window.__studioBusy = saved; }
+  }
+
   function defineSegment(id, build) {
     if (typeof id !== 'string' || typeof build !== 'function') throw new Error('defineSegment(id, build) 参数不对');
     if (segments.has(id)) throw new Error('段 id 重复：' + id);
@@ -1038,10 +1048,12 @@
     }
     function paint() {
       var local = Math.min(Math.max(tl.time(), 0), meta.duration);
-      painters.forEach(function (painter) { painter(local); });
+      withBusy(id, 'paint', function () { painters.forEach(function (painter) { painter(local); }); });
     }
 
     var before = new Set(gsap.globalTimeline.getChildren(false, true, true));
+    var wasBusy = window.__studioBusy;
+    window.__studioBusy = {segment: id, phase: 'build'};
     try {
       var startCam = cameraVars(Object.assign({x: W / 2, y: H / 2, zoom: 1}, startState.camera || {}));
       gsap.set(root, startCam.pan);
@@ -1077,6 +1089,8 @@
       var message = String(error && error.message || error);
       if (message.indexOf(where + '：') === 0) message = message.slice(where.length + 1);
       throw fail('构建失败：' + message);
+    } finally {
+      window.__studioBusy = wasBusy;
     }
 
     var api = {
@@ -1094,7 +1108,8 @@
         cue: ctx.cue,
         cueEnd: ctx.cueEnd,
         state: function (t) {
-          tl.seek(t === undefined ? tl.time() : at(t, '时间 t'), true);
+          var target = t === undefined ? tl.time() : at(t, '时间 t');
+          withBusy(id, 'paint', function () { tl.seek(target, true); });
           paint();
           var measured = {};
           actors.forEach(function (a, name) { measured[name] = a.measure(); });
@@ -1122,6 +1137,7 @@
     defineSegment: defineSegment,
     defineCharacter: defineCharacter,
     _createSegment: createSegment,
-    _diag: diag
+    _diag: diag,
+    _busy: withBusy
   };
 })();

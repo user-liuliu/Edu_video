@@ -161,6 +161,8 @@ async def execute_studio(request,operation):
                     error=json.loads(error_file.read_text(encoding='utf-8'))
                     if error.get('code')=='studio_input':
                         raise HTTPException(422,{'code':'studio_input','message':str(error.get('message',''))[:500]})
+                    if error.get('code')=='studio_runtime' and isinstance(error.get('issues'),list):
+                        raise HTTPException(422,{'code':'studio_runtime','message':str(error.get('message',''))[:500],'issues':error['issues'][:50]})
                 raise HTTPException(422,'分段检查失败' if operation=='inspect' else '视频导出失败')
             if operation=='inspect':
                 result=folder/'result.json'

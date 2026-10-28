@@ -1,5 +1,10 @@
 """Whole-film mp4 export of a studio film: renderFrame + PNG screenshot per frame, piped to
-ffmpeg with the same encoder settings as ``app.videos.direct_render.render_direct``."""
+ffmpeg with the same encoder settings as ``app.videos.direct_render.render_direct``.
+
+Fails closed: any ``studioDiagnostics`` entry or page error (a segment that failed to build
+or paint draws nothing), or a page that stops answering, raises ``StudioRuntimeError``
+instead of exporting a film with blank stretches.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -8,9 +13,17 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from app.studio.render_contract import RenderRequest, check_film, decode_audio, film_data
+from app.studio.render_contract import (RenderRequest, StudioRuntimeError, check_film, decode_audio,
+                                        film_data)
 
 ENCODE_TIMEOUT = 60  # s, after the last frame
+
+# Draw one frame; return the diagnostics that appeared while drawing it.
+_FRAME = '''(t) => {
+  const before = window.studioDiagnostics.length;
+  window.renderFrame(t);
+  return window.studioDiagnostics.slice(before).map((d) => d.message);
+}'''
 
 
 def encoder_command(ffmpeg: str, fps: int, audio: Path, duration: float, output: Path) -> list[str]:
@@ -25,10 +38,35 @@ def frame_count(duration: float, fps: int) -> int:
     return math.ceil(duration * fps - 1e-6)
 
 
+async def _frames(req: RenderRequest, process) -> None:
+    from app.studio.inspect import diagnostic_issues, from_timeout
+    from app.studio.page import StudioTimeout, bounded, studio_page
+
+    first_seen: dict[str, float] = {}
+    t = None
+    try:
+        async with studio_page(req.html, width=req.width, height=req.height) as (page, errors):
+            async def refuse():
+                diagnostics = await bounded(page, page.evaluate('window.studioDiagnostics'))
+                if diagnostics or errors:
+                    raise StudioRuntimeError(diagnostic_issues(diagnostics, list(errors), first_seen))
+            await refuse()
+            for frame in range(frame_count(req.duration, req.fps)):
+                t = frame / req.fps
+                fresh = await bounded(page, page.evaluate(_FRAME, t))
+                if fresh or errors:
+                    for message in fresh:
+                        first_seen.setdefault(message, t)
+                    await refuse()
+                png = await bounded(page, page.screenshot(type='png'))
+                await asyncio.to_thread(process.stdin.write, png)
+    except StudioTimeout as error:
+        error.t = t
+        raise StudioRuntimeError(from_timeout(error)) from None
+
+
 async def render_film(req: RenderRequest, output: Path) -> dict:
-    """Encode the film to ``output``; returns ``videos.export.probe`` metadata, plus
-    ``diagnostics`` (the runtime's list) when the film reported any while rendering."""
-    from app.studio.page import studio_page
+    """Encode the film to ``output``; returns ``videos.export.probe`` metadata."""
     from app.videos.export import decode_check, executable, probe
 
     data = film_data(req.html)
@@ -41,14 +79,7 @@ async def render_film(req: RenderRequest, output: Path) -> dict:
         with open(Path(folder) / 'encoder.log', 'wb') as log:
             process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
             try:
-                async with studio_page(req.html, width=req.width, height=req.height) as (page, errors):
-                    for frame in range(frame_count(req.duration, req.fps)):
-                        await page.evaluate('t => window.renderFrame(t)', frame / req.fps)
-                        png = await page.screenshot(type='png')
-                        await asyncio.to_thread(process.stdin.write, png)
-                    diagnostics = await page.evaluate('window.studioDiagnostics')
-                    diagnostics += [{'segment': None, 'message': f'页面脚本出错：{e[:500]}'}
-                                    for e in dict.fromkeys(errors)]
+                await _frames(req, process)
                 process.stdin.close()
                 if await asyncio.to_thread(process.wait, ENCODE_TIMEOUT):
                     raise ValueError('整片视频编码失败')
@@ -59,7 +90,4 @@ async def render_film(req: RenderRequest, output: Path) -> dict:
                 if process.stdin and not process.stdin.closed:
                     process.stdin.close()
     await asyncio.to_thread(decode_check, output)
-    metadata = await asyncio.to_thread(probe, output, (req.width, req.height))
-    if diagnostics:
-        metadata['diagnostics'] = diagnostics
-    return metadata
+    return await asyncio.to_thread(probe, output, (req.width, req.height))

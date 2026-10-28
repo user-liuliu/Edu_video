@@ -11,6 +11,7 @@
 - 瞬间的变化，比如换文字、显示或隐藏，用 `ctx.tl.set`，例如 `ctx.tl.set(el, {textContent: 'B'}, 2)`。连续的变化用 `ctx.tl.to` 去补间元素属性或普通对象。
 - Canvas 和 three.js 只能在 `ctx.paint` 里画，每次都把整块画布重画一遍，画的时候读被补间的普通对象。
 - 画布是 1280×720。所有文字都要放在 y=625 以上：底部（y 从 625 到 720）是程序显示字幕的地方。`timeline`、`mapRoute`、`scaleCompare` 的文字进入这里时会记一条诊断。
+- 故意放在画布外、再移进来或移出去的文字，给它（或它的外层组）加 `data-edu-offstage`，检查就不会把它算作超出画布。
 - 元素用 `data-edu-id="标签"` 命名，高亮和 `endState` 都按这个标签找元素。SVG 里的 `id`（渐变、滤镜、clipPath）要带上段 id 前缀，避免和别的段重名。
 - 可用的库：`gsap`（含 DrawSVGPlugin、MorphSVGPlugin、MotionPathPlugin、SplitText）、`katex`、`THREE`、`rough`。字体：`"Noto Sans SC"`（400、700）、`"LXGW WenKai"`。
 

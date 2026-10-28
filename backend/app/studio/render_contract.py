@@ -8,6 +8,7 @@ import base64
 import binascii
 import io
 import json
+import math
 import re
 import wave
 from typing import Annotated, Literal
@@ -18,8 +19,8 @@ from app.studio.contract import StageState
 
 MAX_HTML = 4_000_000
 MAX_FRAMES = 40
-MAX_AUDIO_BASE64 = 196 * 1024 * 1024
 MAX_AUDIO_BYTES = 140 * 1024 * 1024
+MAX_AUDIO_BASE64 = math.ceil(MAX_AUDIO_BYTES / 3) * 4  # base64 of the decoded cap
 MAX_DURATION = 7200.0
 REVIEW_SIZE = (640, 360)  # inspect frames are downscaled to this for the vision review
 DURATION_TOLERANCE = 1 / 30
@@ -31,6 +32,15 @@ _FILM_BLOCK = re.compile(r'<script type="application/json" id="edu-studio-film">
 
 class StudioInputError(ValueError):
     """The request does not describe the film it carries (duration, size, missing block)."""
+
+
+class StudioRuntimeError(RuntimeError):
+    """The film reported runtime problems (or stopped answering) while being exported."""
+
+    def __init__(self, issues: list):
+        self.issues = issues
+        first = issues[0].message if issues else ''
+        super().__init__(f'动画运行出错，不能导出：{first}'[:500])
 
 
 class _Model(BaseModel):

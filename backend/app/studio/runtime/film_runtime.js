@@ -243,7 +243,9 @@
     // the picture, and the held frame of a layer next to a seam never depends on history.
     layers.forEach(function (item) {
       clearLayer(item);
-      item.instance.tl.seek(Math.min(Math.max(t - item.start, 0), item.duration), true);
+      EduStudio._busy(item.id, 'paint', function () {
+        item.instance.tl.seek(Math.min(Math.max(t - item.start, 0), item.duration), true);
+      });
     });
     var slot = slotAt(t);
     if (slot.layer) {

@@ -2,14 +2,17 @@
 
 Reads ``request.json`` and writes ``result.json`` (inspect) or ``output.mp4`` +
 ``metadata.json`` (render). A request that does not match its own film writes
-``error.json`` with code ``studio_input`` and exits 2.
+``error.json`` with code ``studio_input``, and a film that reports runtime problems while
+being exported writes code ``studio_runtime`` with the issues; both exit 2.
 """
 import asyncio
 import json
 from pathlib import Path
 import sys
 
-from app.studio.render_contract import InspectRequest, RenderRequest, StudioInputError
+from app.studio.render_contract import InspectRequest, RenderRequest, StudioInputError, StudioRuntimeError
+
+MAX_REPORTED_ISSUES = 50
 
 
 async def run(operation, folder):
@@ -35,4 +38,10 @@ if __name__ == '__main__':
     except StudioInputError as error:
         (Path(sys.argv[2]) / 'error.json').write_text(
             json.dumps({'code': 'studio_input', 'message': str(error)[:500]}, ensure_ascii=False), encoding='utf-8')
+        raise SystemExit(2)
+    except StudioRuntimeError as error:
+        issues = [issue.model_dump() for issue in error.issues[:MAX_REPORTED_ISSUES]]
+        (Path(sys.argv[2]) / 'error.json').write_text(
+            json.dumps({'code': 'studio_runtime', 'message': str(error)[:500], 'issues': issues},
+                       ensure_ascii=False), encoding='utf-8')
         raise SystemExit(2)
