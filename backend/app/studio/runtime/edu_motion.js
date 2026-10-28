@@ -190,6 +190,32 @@
     function fadeOut(target, vars, end, len) {
       if (end + len <= ctx.duration + 1e-9) tl.to(target, Object.assign({duration: len, ease: 'power1.in'}, vars), end);
     }
+    // One emphasis on one property: rise over `ramp`, hold until `start + hold`, fall back over
+    // `ramp`, as a single yoyo tween. The way back returns to the value the target had just
+    // before `start` (GSAP records it on first render, which the build preroll does in time
+    // order), and rise and fall can never overlap, so the frame never depends on the seek
+    // direction. `hold` shorter than `ramp` is lengthened to `ramp`. If falling back would run
+    // past the segment, it rises and holds to the end instead.
+    function pulse(target, vars, start, hold, ramp) {
+      hold = Math.max(hold, ramp);
+      var tween = Object.assign({duration: ramp, ease: 'power1.inOut'}, vars);
+      if (start + hold + ramp <= ctx.duration + 1e-9) {
+        tween.yoyo = true;
+        tween.repeat = 1;
+        tween.repeatDelay = hold - ramp;
+      }
+      tl.to(target, tween, start);
+    }
+    // Text a helper drew must stay above the program's subtitle zone (y >= 625 of 720).
+    function aboveSubtitles(g, fn) {
+      var limit = env.H * 625 / 720;
+      Array.prototype.forEach.call(g.querySelectorAll('text'), function (t) {
+        var b = t.getBBox();
+        if (b.y + b.height > limit + 0.5) {
+          env.note(fn + ' 的文字"' + t.textContent + '"进入了底部字幕区（y 不能超过 ' + round(limit) + '），请往上放');
+        }
+      });
+    }
 
     // Stroke reveal: one dash of L+1 then a long gap. Offset 0 shows the whole stroke; the
     // hidden offset also moves the dash end a stroke width before the start, so a round cap
@@ -309,6 +335,10 @@
         throw fail('tex 公式写错了：' + (error && error.message || error));
       }
       Array.prototype.forEach.call(el.querySelectorAll('.katex-display'), function (d) { d.style.margin = '0'; });
+      // KaTeX's CSS scales .katex (1.21em); make `size` the font size the formula really gets.
+      var rendered = el.querySelector('.katex');
+      var actual = rendered ? parseFloat(getComputedStyle(rendered).fontSize) : size;
+      if (actual > 0 && Math.abs(actual - size) > 1e-3) el.style.fontSize = (size * size / actual) + 'px';
       gsap.set(el, {xPercent: -50, yPercent: -50});
       return el;
     };
@@ -332,17 +362,12 @@
       var list = colorTargets(els);
       if (!list.length) throw fail('highlight 的目标 ' + target + ' 没有可以变色的文字或图形');
       list.forEach(function (pair) {
-        var original = getComputedStyle(pair[0])[pair[1]], to = {}, back = {};
-        to[pair[1]] = color; back[pair[1]] = original;
-        tl.to(pair[0], Object.assign({duration: 0.15, ease: 'power1.out'}, to), start);
-        fadeOut(pair[0], back, end, 0.2);
+        var to = {};
+        to[pair[1]] = color;
+        pulse(pair[0], to, start, hold, 0.15);
       });
       if (style === 'glow') {
-        els.forEach(function (el) {
-          var layer = glowOn(el, color);
-          tl.to(layer, {v: 1, duration: 0.15, ease: 'power1.out'}, start);
-          fadeOut(layer, {v: 0}, end, 0.2);
-        });
+        els.forEach(function (el) { pulse(glowOn(el, color), {v: 1}, start, hold, 0.15); });
       }
       return els[0];
     };
@@ -370,8 +395,7 @@
         shade.setAttribute('opacity', String(round(state.o * (1 - dim))));
         shade.style.visibility = 'visible';
       });
-      tl.to(state, {o: 1, duration: 0.3, ease: 'power1.out'}, start);
-      fadeOut(state, {o: 0}, start + length, 0.3);
+      pulse(state, {o: 1}, start, length, 0.3);
       return shade;
     };
 
@@ -542,7 +566,7 @@
       start = at(start);
       length = dur(length, 2);
       var x0 = o.x === undefined ? 140 : finite(o.x, 'timeline 的 x');
-      var y = o.y === undefined ? env.H - 140 : finite(o.y, 'timeline 的 y');
+      var y = o.y === undefined ? env.H - 175 : finite(o.y, 'timeline 的 y');
       var w = o.w === undefined ? env.W - 280 : finite(o.w, 'timeline 的 w');
       var color = o.color || PALETTE[0];
       var g = group(o.id);
@@ -568,6 +592,7 @@
           {opacity: 1, scale: 1, svgOrigin: round(x) + ' ' + y, duration: pop, ease: 'back.out(2)',
             immediateRender: true}, when);
       });
+      aboveSubtitles(g, 'timeline');
       return g;
     };
 
@@ -609,6 +634,7 @@
       gsap.set(head, {x: pts[0].x, y: pts[0].y, opacity: 0});
       tl.set(head, {opacity: 1}, start);
       tl.to(head, {motionPath: {path: route}, duration: length, ease: 'none'}, start);
+      aboveSubtitles(g, 'mapRoute');
       return g;
     };
 
@@ -657,6 +683,7 @@
         tl.fromTo(value, {opacity: 0}, {opacity: 1, duration: Math.min(0.3, step / 2), ease: 'none',
           immediateRender: true}, start + step * i + step * 0.5);
       });
+      aboveSubtitles(g, 'scaleCompare');
       return g;
     };
 
@@ -939,7 +966,7 @@
     };
 
     ctx.motion = makeMotion({ctx: ctx, tl: tl, root: root, svg: svg, W: W, H: H,
-      fail: fail, finite: finite, at: at, onlyKeys: onlyKeys});
+      fail: fail, note: note, finite: finite, at: at, onlyKeys: onlyKeys});
 
     function checkGeometry() {
       actors.forEach(function (a, name) {

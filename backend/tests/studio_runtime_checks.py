@@ -26,6 +26,9 @@ KATEX = (FIXTURES / 'katex_segment.js').read_text(encoding='utf-8')
 KATEX_HELPER = (FIXTURES / 'katex_helper.js').read_text(encoding='utf-8')
 KATEX_HELPER_SEGMENT = (FIXTURES / 'katex_helper_segment.js').read_text(encoding='utf-8')
 EFFECTS = (FIXTURES / 'effects_segment.js').read_text(encoding='utf-8')
+EMPHASIS = (FIXTURES / 'emphasis_segment.js').read_text(encoding='utf-8')
+LAYOUT_DEFAULTS = (FIXTURES / 'layout_defaults_segment.js').read_text(encoding='utf-8')
+SUBTITLE_TOP = 625  # the program draws subtitles from this y down on a 1280x720 canvas
 API_MD = RUNTIME_DIR / 'API.md'
 
 NARRATION = '二次函数的图像是一条抛物线，顶点就是它的最低点。'
@@ -195,7 +198,12 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
 
     async def test_api_examples_run_as_segment_code(self):
         # Blocks calling defineCharacter are character code; every other block is a segment body.
-        blocks = re.findall(r'```js\n(.*?)```', API_MD.read_text(encoding='utf-8'), re.S)
+        text = API_MD.read_text(encoding='utf-8')
+        blocks = re.findall(r'```js\n(.*?)```', text, re.S)
+        # The 高亮写法 section shows exactly the term-naming pattern, as a body snippet.
+        section = text.split('### 高亮写法', 1)[1].split('\n## ', 1)[0]
+        self.assertIn(r"ctx.motion.tex('y=\\htmlClass{t-a}{x^2}", section)
+        self.assertIn("ctx.motion.highlight('.t-a', ctx.cue('", section)
         characters = '\n'.join(b for b in blocks if 'defineCharacter' in b)
         body = '\n'.join(b for b in blocks if 'defineCharacter' not in b)
         self.assertTrue(characters and body)
@@ -219,6 +227,11 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(before, after)
             self.assertEqual(errors, [])
 
+            # Same page: tex size is the rendered KaTeX font size in px (fixture: size 44).
+            size = await page.evaluate('''parseFloat(getComputedStyle(document.querySelector(
+                '.edu-stage [data-edu-id=formula] .katex')).fontSize)''')
+            self.assertAlmostEqual(size, 44, 0)
+
             # Same page: plot() maps the function into its box.
             # Fixture: plot(x=>x*x-2*x-3, {xRange:[-2,4], yRange:[-5,5], box:{x:100,y:80,w:600,h:400}}).
             p = await page.evaluate('EduFilm.instantiate("fx").plotProbe(1)')  # toScreen(1, f(1))
@@ -236,12 +249,57 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             ("ctx.motion.highlight('.nope', 1)", '.nope'),
             ("ctx.motion.plot(x=>x, {xRange: [3, 1], yRange: [0, 1], box: {x: 0, y: 0, w: 100, h: 100}})", 'xRange'),
             (r"ctx.motion.tex('\\frac{1}{', {})", 'tex'),
+            ("ctx.motion.timeline(['今天'], 0, 1, {y: 660})", '字幕区'),
         )
         for code, word in cases:
             async with studio_page(plain_film(code)) as (page, _):
                 diagnostics = await page.evaluate('window.studioDiagnostics')
                 self.assertTrue(any(d['segment'] == 'a' and d['message'].startswith('第 a 段：')
                                     and word in d['message'] for d in diagnostics), (code, diagnostics))
+
+    async def test_short_emphasis_is_seek_safe(self):
+        probe = '''(()=>{const s=document.querySelector('.edu-stage');
+            const q=k=>s.querySelector('[data-edu-id='+k+']');
+            const shade=s.querySelector('.edu-fx path');
+            return {short: getComputedStyle(q('short')).fill, glow: q('short').style.filter,
+                    blue: getComputedStyle(q('blue')).fill,
+                    shade: shade.getAttribute('opacity') + '|' + shade.style.visibility}})()'''
+        async with studio_page(plain_film(EMPHASIS)) as (page, errors):
+            seen = []
+            for before in (0, 2.5, 1.0, 2.9, 0):  # reach 1.12 from below and from above
+                await page.evaluate('t=>window.renderFrame(t)', before)
+                await page.evaluate('t=>window.renderFrame(t)', 1.12)
+                seen.append(await page.evaluate(probe))
+            for frame in seen[1:]:
+                self.assertEqual(frame, seen[0])
+            self.assertEqual(errors, [])
+
+    async def test_highlight_restores_the_colour_just_before_it(self):
+        blue = "getComputedStyle(document.querySelector('.edu-stage [data-edu-id=blue]')).fill"
+        async with studio_page(plain_film(EMPHASIS)) as (page, errors):
+            # Blue from 0.5 s; highlighted 1.0-1.5 s; must be blue again after, in both directions.
+            for t in (0.8, 2.5, 0.8, 2.5):
+                await page.evaluate('t=>window.renderFrame(t)', t)
+                self.assertEqual(await page.evaluate(blue), 'rgb(0, 0, 255)', t)
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+
+    async def test_scene_helper_text_stays_above_subtitles(self):
+        # The API.md example of timeline/mapRoute/scaleCompare, plus their default layouts.
+        blocks = re.findall(r'```js\n(.*?)```', API_MD.read_text(encoding='utf-8'), re.S)
+        example = [b for b in blocks if 'ctx.motion.timeline(' in b]
+        self.assertEqual(len(example), 1)
+        film = plain_film(example[0] + '\n' + LAYOUT_DEFAULTS, duration=4.5)
+        async with studio_page(film) as (page, errors):
+            await page.evaluate('t=>window.renderFrame(t)', 3.0)
+            boxes = await page.evaluate('''(()=>{const s=document.querySelector('.edu-stage');
+                const top=s.getBoundingClientRect().top;
+                return Array.from(s.querySelectorAll('text')).map(t=>[t.textContent,
+                    Math.round(t.getBoundingClientRect().bottom-top)])})()''')
+            self.assertGreaterEqual(len(boxes), 14)
+            self.assertEqual([b for b in boxes if b[1] > SUBTITLE_TOP], [])
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
 
     async def test_every_effect_is_seek_safe(self):
         # Same time, same picture: covers tex, highlight, drawPath, plot, spotlight, circle, follow,

@@ -10,6 +10,7 @@
 - 运行时定位时间线时不触发任何回调。所以 `tl.call`、`onStart`、`onComplete`、`onUpdate` 里不要改任何看得见的东西，改了也不会显示。
 - 瞬间的变化，比如换文字、显示或隐藏，用 `ctx.tl.set`，例如 `ctx.tl.set(el, {textContent: 'B'}, 2)`。连续的变化用 `ctx.tl.to` 去补间元素属性或普通对象。
 - Canvas 和 three.js 只能在 `ctx.paint` 里画，每次都把整块画布重画一遍，画的时候读被补间的普通对象。
+- 画布是 1280×720。所有文字都要放在 y=625 以上：底部（y 从 625 到 720）是程序显示字幕的地方。`timeline`、`mapRoute`、`scaleCompare` 的文字进入这里时会记一条诊断。
 - 元素用 `data-edu-id="标签"` 命名，高亮和 `endState` 都按这个标签找元素。SVG 里的 `id`（渐变、滤镜、clipPath）要带上段 id 前缀，避免和别的段重名。
 - 可用的库：`gsap`（含 DrawSVGPlugin、MorphSVGPlugin、MotionPathPlugin、SplitText）、`katex`、`THREE`、`rough`。字体：`"Noto Sans SC"`（400、700）、`"LXGW WenKai"`。
 
@@ -117,19 +118,19 @@ ctx.endState({keep: ['dot']});
 常用的讲解效果都在 `ctx.motion` 上，它们只往 `ctx.tl` 里加动画，可以随意定位。通用约定：
 - `at`、`dur` 单位是秒，`at` 通常写成 `ctx.cue('...')`。坐标、尺寸是像素。
 - `target` 可以是元素、元素数组，或选择器（只在 `ctx.root` 里找，找不到时抛错，信息以"第 段id 段："开头）。
-- 有时长的强调（`highlight`、`spotlight`）在 `at + dur` 后恢复原样；如果恢复会超过本段时长，就保持到本段结束。
+- 有时长的强调（`highlight`、`spotlight`）在 `at + dur` 后恢复成强调开始前一刻的样子（比如本段先把文字变成了蓝色，强调完还是蓝色）；如果恢复会超过本段时长，就保持到本段结束。`dur` 比淡入时间还短时，按淡入时间算。
 - 下划线、框、圈和聚光灯画在 `ctx.root` 里最上层的 `<svg class="edu-fx">` 上：跟着镜头动，盖在公式和角色上面，角色和镜头参数不会改它。它们每一帧按目标当时的位置重画，目标移动时也跟着走。`ctx.$('path')` 这样的宽泛选择器也会选到这些装饰，找元素请用 `data-edu-id`。
 
 ### `tex(latex, {x, y, size=48, color, id}) -> Element`
-用 KaTeX 把公式画成 HTML 元素，放进 `ctx.root`。(x, y) 是公式中心，`size` 是字号（像素），`id` 会写成 `data-edu-id`。只允许 `\htmlClass` 这一个扩展命令，用来给公式里的某一项命名。公式写错时抛错。JS 字符串里反斜杠要写两个。
+用 KaTeX 把公式画成 HTML 元素，放进 `ctx.root`。(x, y) 是公式中心，`size` 是公式实际的字号（像素，即 `.katex` 元素的 font-size），`id` 会写成 `data-edu-id`。只允许 `\htmlClass` 这一个扩展命令，用来给公式里的某一项命名。公式写错时抛错。JS 字符串里反斜杠要写两个。
 ```js
-const formula = ctx.motion.tex('y=\\htmlClass{t-a}{x^2}-2x-3', {x: 900, y: 120, size: 44, id: 'formula'});
+const formula = ctx.motion.tex('y=x^2-2x-3', {x: 900, y: 120, size: 44, id: 'formula'});
 ```
 
 ### `highlight(target, at, {dur=0.6, color='#c53030', style='glow'}) -> Element`
-从 `at` 秒起强调目标 `dur` 秒，然后用 0.2 秒恢复。`style`：`'glow'` 变色并发光，`'color'` 只变色，`'underline'` 画下划线，`'box'` 画圆角框。HTML 元素改文字颜色；SVG 图形改填充（没有填充的改描边），`<g>` 会改里面所有图形。每次调用都会被记下，用来检查高亮是否和旁白里的词对上。
+从 `at` 秒起用 0.15 秒变亮，保持到 `at + dur`，再用 0.15 秒恢复。`style`：`'glow'` 变色并发光，`'color'` 只变色，`'underline'` 画下划线，`'box'` 画圆角框。HTML 元素改文字颜色；SVG 图形改填充（没有填充的改描边），`<g>` 会改里面所有图形。每次调用都会被记下，用来检查高亮是否和旁白里的词对上。
 ```js
-ctx.motion.highlight('.t-a', ctx.cue('顶点'), {dur: 0.8});
+ctx.motion.highlight('[data-edu-id="formula"]', ctx.cue('二次'), {dur: 0.8});
 ctx.motion.highlight('[data-edu-id="formula"]', ctx.cue('抛物线'), {style: 'underline'});
 ```
 
@@ -193,21 +194,21 @@ ctx.motion.drawPath(sketch, 1, 1.2);
 ```
 
 ### 画面手法
-- `timeline(items, at, dur=2, {x=140, y=画布高-140, w=画布宽-280, color, id}) -> Element`：一条从 (x, y) 起、长 `w` 的时间线，用 `dur` 秒从左推到右，推到哪一项那一项就弹出来。每项是字符串或 `{time, label}`，`time` 写在点上方，`label` 写在下方。
+- `timeline(items, at, dur=2, {x=140, y=画布高-175, w=画布宽-280, color, id}) -> Element`：一条从 (x, y) 起、长 `w` 的时间线，用 `dur` 秒从左推到右，推到哪一项那一项就弹出来。每项是字符串或 `{time, label}`，`time` 写在点上方，`label` 写在下方（基线在 y+48 处，所以 y 不要超过 570）。
 - `mapRoute(points, at, dur=2, {color='#c53030', width=5, id}) -> Element`：按顺序用 `dur` 秒画出经过 `points` 的路线，一个圆点走在路线最前面，经过的点依次显示。每个点是 `{x, y, label}` 或 `[x, y]`。
-- `scaleCompare(items, at, dur=2, {x=200, y=画布高-160, w=画布宽-400, h=360, shape='bar', unit, id}) -> Element`：按数值大小对比，各项在 `dur` 秒里依次长出来。`y` 是底线，`h` 是最大一项的高度；`shape: 'circle'` 时圆的面积和数值成正比。每项是 `{label, value, color}`，`value` 必须大于 0，`unit` 接在数值后面显示。
+- `scaleCompare(items, at, dur=2, {x=200, y=画布高-160, w=画布宽-400, h=360, shape='bar', unit, id}) -> Element`：按数值大小对比，各项在 `dur` 秒里依次长出来。`y` 是底线，`h` 是最大一项的高度；`shape: 'circle'` 时圆的面积和数值成正比。每项是 `{label, value, color}`，`value` 必须大于 0，`unit` 接在数值后面显示。名称写在底线下方（基线在 y+40 处，所以 y 不要超过 575）。
 ```js
-ctx.motion.timeline([{time: '1637', label: '笛卡尔'}, {time: '1687', label: '牛顿'}, '今天'], 0.5, 3, {y: 620});
+ctx.motion.timeline([{time: '1637', label: '笛卡尔'}, {time: '1687', label: '牛顿'}, '今天'], 0.5, 3, {y: 540});
 ctx.motion.mapRoute([{x: 900, y: 300, label: '北京'}, [1000, 380], {x: 1150, y: 330, label: '上海'}], 1, 2);
 ctx.motion.scaleCompare([{label: '地球', value: 1}, {label: '木星', value: 11}], 2, 2,
-  {x: 800, y: 680, w: 400, h: 200, unit: '倍', shape: 'circle'});
+  {x: 800, y: 560, w: 400, h: 160, unit: '倍', shape: 'circle'});
 ```
 
 ### 高亮写法
 要单独强调公式里的某一项：在公式里用 `\htmlClass{t-名字}{...}` 包住这一项，再在旁白说到它时 `highlight('.t-名字', ctx.cue('词'))`。同一段里类名不要重复，否则会一起亮。
 ```js
-ctx.motion.tex('S=\\htmlClass{t-r}{\\pi r^2}', {x: 900, y: 220, id: 'area'});
-ctx.motion.highlight('.t-r', ctx.cue('图像'), {style: 'color', dur: 1});
+ctx.motion.tex('y=\\htmlClass{t-a}{x^2}-2x-3', {x: 900, y: 210, id: 'term'});
+ctx.motion.highlight('.t-a', ctx.cue('顶点'));
 ```
 
 ## 检查用（段代码不要调用）

@@ -32,7 +32,7 @@ m.splitText(ctx.$('[data-edu-id="title"]')[0], 0.2, {stagger: 0.08});
 const sketch = m.rough('rect', [760, 420, 180, 90], {stroke: '#2f855a', roughness: 1.5, id: 'sketch'});
 m.drawPath(sketch, 0.3, 1.5);
 m.timeline([{time: '1970', label: '开始'}, {time: '1990', label: '发展'}, '今天'], 1.0, 4.0,
-  {x: 100, y: 600, w: 600});
+  {x: 100, y: 560, w: 600});
 m.mapRoute([{x: 980, y: 460, label: '甲'}, {x: 1100, y: 520}, {x: 1200, y: 440, label: '乙'}], 3.0, 2.5);
 m.scaleCompare([{label: '地球', value: 1}, {label: '木星', value: 11}], 4.0, 2.0,
   {x: 960, y: 560, w: 280, h: 140, shape: 'circle'});
