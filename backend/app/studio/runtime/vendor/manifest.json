@@ -1962,6 +1962,72 @@
       "license": "MIT",
       "sha256": "fa140498b8cfc8302cbe5e7cb1bdbc1f952bc38b3fa258ede09e73edbf9a74bc"
     },
+    "licenses/gsap/GSAP-Standard-No-Charge.txt": {
+      "package": "gsap",
+      "version": "3.15.0",
+      "license": "GSAP-Standard-No-Charge",
+      "sha256": "c19a4acf224beb876c352c8e7463dc42ede5bf01feab38214807624f0b3ce94c"
+    },
+    "licenses/katex/LICENSE": {
+      "package": "katex",
+      "version": "0.19.1",
+      "license": "MIT",
+      "sha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3"
+    },
+    "licenses/lxgw-wenkai/LICENSE": {
+      "package": "lxgw-wenkai-webfont",
+      "version": "1.7.0",
+      "license": "MIT",
+      "sha256": "93f6a553f49fa44ce45308a386c320a665b36ca10b4e96ae5f110827d9c2dd3c"
+    },
+    "licenses/lxgw-wenkai/OFL.txt": {
+      "package": "lxgw-wenkai-webfont",
+      "version": "1.7.0",
+      "license": "OFL-1.1",
+      "sha256": "fe4ddef88d2705569740a4b6c59e1a73315e1a55fb0a0d054bd791977681f8cb"
+    },
+    "licenses/noto-sans-sc/LICENSE": {
+      "package": "@fontsource/noto-sans-sc",
+      "version": "5.3.1",
+      "license": "OFL-1.1",
+      "sha256": "18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3"
+    },
+    "licenses/roughjs/LICENSE": {
+      "package": "roughjs",
+      "version": "4.6.6",
+      "license": "MIT",
+      "sha256": "dca9a392272606ac748ac0976a2a1133f14eef841c27beaa51a844d53c56a09d"
+    },
+    "licenses/roughjs/hachure-fill/LICENSE": {
+      "package": "hachure-fill",
+      "version": "0.5.2",
+      "license": "MIT",
+      "sha256": "5e807b516a9be9229ed459880bf353a336e2d947867247290680d437017be391"
+    },
+    "licenses/roughjs/path-data-parser/LICENSE": {
+      "package": "path-data-parser",
+      "version": "0.1.0",
+      "license": "MIT",
+      "sha256": "e9754a00aebde654e80f40bcf41dab667d6a41dfbbd2912bcf14fb07d468bf71"
+    },
+    "licenses/roughjs/points-on-curve/LICENSE": {
+      "package": "points-on-curve",
+      "version": "0.2.0",
+      "license": "MIT",
+      "sha256": "e9754a00aebde654e80f40bcf41dab667d6a41dfbbd2912bcf14fb07d468bf71"
+    },
+    "licenses/roughjs/points-on-path/LICENSE": {
+      "package": "points-on-path",
+      "version": "0.2.1",
+      "license": "MIT",
+      "sha256": "b6fc1f7f1d96a48bc97176f3dcef959e364c5c17ba44167511de421500a86c6c"
+    },
+    "licenses/three/LICENSE": {
+      "package": "three",
+      "version": "0.186.1",
+      "license": "MIT",
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"
+    },
     "rough.js": {
       "package": "roughjs",
       "version": "4.6.6",
@@ -1972,7 +2038,7 @@
       "package": "three",
       "version": "0.186.1",
       "license": "MIT",
-      "sha256": "81c2d9e4a74b1e5e488c7418cf6d11608b37b367efdcb239f8cd773e38ff4410"
+      "sha256": "f9d7753c7aeb57c4af3c75d3de8687dca1414fc922930f9531107ff2e5f32251"
     }
   }
 }
