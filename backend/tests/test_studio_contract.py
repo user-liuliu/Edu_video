@@ -48,6 +48,44 @@ def test_lint_reports_each_banned_token(code, label):
     assert f'{label} 不允许使用' in lint_segment(code)
 
 
+@pytest.mark.parametrize('code,label', [
+    ('self.x = 1', 'self.'),
+    ('self .fetch("/x")', 'self.'),
+    ('globalThis.Math.random()', 'globalThis.'),
+    ('globalThis . foo', 'globalThis.'),
+    ('Math?.random()', 'Math.random'),
+    ('Date?.now()', 'Date.now'),
+    ('performance?.now()', 'performance.now'),
+    ('window?.x', 'window.'),
+    ('self?.x', 'self.'),
+    ('globalThis?.x', 'globalThis.'),
+    ('parent?.postMessage(1)', 'parent.'),
+    ('top?.location', 'top.'),
+    ('document?.querySelector("a")', 'document.querySelector'),
+    ('document?.body', 'document.body'),
+    ('gsap?.ticker.add(f)', 'gsap.ticker'),
+    ('gsap?.globalTimeline.clear()', 'gsap.globalTimeline'),
+    ('const s = Date()', 'Date('),
+    ('const s = Date ()', 'Date('),
+    ('Date?.()', 'Date('),
+    ('Function("return this")()', 'Function('),
+    ('Function ("a", "b")', 'Function('),
+    ('document.write("<b>")', 'document.write'),
+    ('document . writeln("x")', 'document.write'),
+    ('document?.write("x")', 'document.write'),
+])
+def test_lint_closes_global_and_call_bypasses(code, label):
+    assert f'{label} 不允许使用' in lint_segment(code)
+
+
+def test_lint_new_patterns_keep_lookalikes_legal():
+    ok = ('const s = ctx.self.x; o.globalThis = 1; const isFunction = 1; ctx.toDate(1); '
+          'x instanceof Date; typeof Function; const myDate = 2; el.document.write = 3; '
+          'const v = top ? .5 : 1; const w = parent ?.25 : 0; const u = window ?.5:0; const update = (x) => x; '
+          'const selfish = 1; const myself = {x: 1}; myself.x = 2; myFunction(1); ToDate(2);')
+    assert lint_segment(ok) == []
+
+
 def test_lint_allows_lookalikes_and_property_access():
     ok = 'const prefetch = 1; ctx.top.y = 2; el.parent.x = 3; ctx.random(); const evaluate = 4;'
     assert lint_segment(ok) == []

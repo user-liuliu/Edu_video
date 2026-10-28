@@ -9,10 +9,10 @@
   var BROTHER = {robe: '#7a9a4f', robeDark: '#5c7a39', belt: '#c99a3c', hair: '#2a2420', skin: '#f2cdb0', buns: false};
   var INK = '#2a2420';
 
-  function el(tag, attrs, parent) {
+  function el(tag, attrs, into) {
     var e = document.createElementNS(NS, tag);
     for (var k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
+    if (into) into.appendChild(e);
     return e;
   }
   // A part rotating about (px, py) in feet-at-origin coordinates; its shapes are drawn in a
@@ -23,16 +23,16 @@
   }
 
   // The reference pear, drawn around (0,0): big = the 1.25 size, else the 0.85 size.
-  function pear(parent, big) {
+  function pear(into, big) {
     var r = big ? 1.25 : 0.85;
     el('path', {d: 'M0,' + (-14 * r) + ' C' + (9 * r) + ',' + (-14 * r) + ' ' + (8 * r) + ',' + (-3 * r) + ' ' + (12 * r) + ',' + (6 * r) +
       ' C' + (16 * r) + ',' + (16 * r) + ' ' + (8 * r) + ',' + (22 * r) + ' 0,' + (22 * r) + ' C' + (-8 * r) + ',' + (22 * r) + ' ' +
       (-16 * r) + ',' + (16 * r) + ' ' + (-12 * r) + ',' + (6 * r) + ' C' + (-8 * r) + ',' + (-3 * r) + ' ' + (-9 * r) + ',' + (-14 * r) + ' 0,' + (-14 * r) + 'Z',
-      fill: '#e8c547', stroke: '#c9a22e', 'stroke-width': 1.5}, parent);
+      fill: '#e8c547', stroke: '#c9a22e', 'stroke-width': 1.5}, into);
     el('path', {d: 'M' + (-5 * r) + ',' + (4 * r) + ' q' + (-3 * r) + ',' + (6 * r) + ' 0,' + (12 * r), stroke: '#f6e08c',
-      'stroke-width': 3, fill: 'none', 'stroke-linecap': 'round'}, parent);
-    el('path', {d: 'M0,' + (-14 * r) + ' q2,-6 4,-9', stroke: '#6b4a2b', 'stroke-width': 2.2, fill: 'none', 'stroke-linecap': 'round'}, parent);
-    el('path', {d: 'M3,' + (-19 * r) + ' q8,-6 12,0 q-7,4 -12,0Z', fill: '#6aa14a'}, parent);
+      'stroke-width': 3, fill: 'none', 'stroke-linecap': 'round'}, into);
+    el('path', {d: 'M0,' + (-14 * r) + ' q2,-6 4,-9', stroke: '#6b4a2b', 'stroke-width': 2.2, fill: 'none', 'stroke-linecap': 'round'}, into);
+    el('path', {d: 'M3,' + (-19 * r) + ' q8,-6 12,0 q-7,4 -12,0Z', fill: '#6aa14a'}, into);
   }
 
   // The reference arm, hanging straight down from its shoulder at (0,0) of the arm frame.

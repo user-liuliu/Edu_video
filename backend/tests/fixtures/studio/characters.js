@@ -9,10 +9,10 @@ EduStudio.defineCharacter('kr', function (g, params) {
     g.appendChild(p);
     return p;
   }
-  function shape(parent, tag, attrs) {
+  function shape(into, tag, attrs) {
     const el = document.createElementNS(NS, tag);
     for (const k in attrs) el.setAttribute(k, attrs[k]);
-    parent.appendChild(el);
+    into.appendChild(el);
     return el;
   }
   const body = part('body', '0,-60');

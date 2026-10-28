@@ -104,8 +104,12 @@ def _json_block(data: dict) -> str:
 def build_film_html(segments: list[Segment], seams: list[Seam], *, characters_code: str = '',
                     style_css: str = '', width: int = 1280, height: int = 720) -> str:
     _validate(segments, seams)
+    # Character code runs in the same page as segments, so the same rules apply to it.
+    issues = lint_segment(characters_code)
     if _SCRIPT_BREAKOUT.search(characters_code):
-        raise FilmError('角色代码里不允许出现 </script 或 <!--')
+        issues.append('</script 或 <!-- 不允许使用')
+    if issues:
+        raise FilmError('角色定义：' + '；'.join(issues))
     if _STYLE_BREAKOUT.search(style_css):
         raise FilmError('样式里不允许出现 </style 或 <!--')
     if not (isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0):

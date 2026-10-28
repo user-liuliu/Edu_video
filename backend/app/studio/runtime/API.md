@@ -5,7 +5,7 @@
 ## 规则
 
 - 每一帧只由时间决定。所有动画都放在 `ctx.tl` 上，运行时只通过 seek 定位，不会自己播放。
-- `build(ctx)` 同步执行，不能用定时器、`requestAnimationFrame`、`Math.random`、`Date`、网络请求。需要随机数用 `ctx.random()`。
+- `build(ctx)` 同步执行，不能用定时器、`requestAnimationFrame`、`Math.random`、`Date`、网络请求。需要随机数用 `ctx.random()`。这些规则同样适用于角色定义（`defineCharacter` 和角色代码里的辅助函数）：角色每次都要画得一模一样。运行时里 `Math.random` 是固定种子的伪随机数，`Date.now()`、`new Date()`、`performance.now()` 返回固定时刻，不要依赖它们。
 - 不要用 `gsap.to/from/timeline` 直接建动画（不会播放，会记一条诊断）；用 `ctx.tl.to/from/fromTo/set`。`gsap.set` 可以用，会立即生效，作为本段的初始状态。
 - 运行时定位时间线时不触发任何回调。所以 `tl.call`、`onStart`、`onComplete`、`onUpdate` 里不要改任何看得见的东西，改了也不会显示。
 - 瞬间的变化，比如换文字、显示或隐藏，用 `ctx.tl.set`，例如 `ctx.tl.set(el, {textContent: 'B'}, 2)`。连续的变化用 `ctx.tl.to` 去补间元素属性或普通对象。

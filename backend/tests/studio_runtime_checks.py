@@ -31,6 +31,7 @@ LAYOUT_DEFAULTS = (FIXTURES / 'layout_defaults_segment.js').read_text(encoding='
 OVERLAP = (FIXTURES / 'overlap_segment.js').read_text(encoding='utf-8')
 SEAM_A = (FIXTURES / 'seam_a_segment.js').read_text(encoding='utf-8')
 SEAM_B = (FIXTURES / 'seam_b_segment.js').read_text(encoding='utf-8')
+ALIAS_CLOCK_CHARACTER = (FIXTURES / 'alias_clock_character.js').read_text(encoding='utf-8')
 SUBTITLE_TOP = 625  # the program draws subtitles from this y down on a 1280x720 canvas
 API_MD = RUNTIME_DIR / 'API.md'
 
@@ -544,6 +545,52 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(errors, [])
             self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
 
+
+    # ---- final fix wave: randomness and clocks are fixed for every page load -------------
+    async def test_aliased_random_and_clock_draw_the_same_frame_on_every_load(self):
+        """Inspect and export open separate pages, so one film must draw the same frame on
+        each fresh load, even when character code reads Math.random or a clock through an
+        alias the lint cannot see."""
+        import numpy as np
+        from PIL import Image
+        html = plain_film("const d = ctx.actor('dice'); d.moveTo({x: 800, y: 500}, 1, 0);",
+                          characters=ALIAS_CLOCK_CHARACTER)
+        loads = []
+        for _ in range(2):
+            async with studio_page(html) as (page, errors):
+                shots = []
+                for t in (0, 1.5):
+                    await page.evaluate('t=>window.renderFrame(t)', t)
+                    shots.append(np.asarray(Image.open(io.BytesIO(await page.screenshot())).convert('RGB')))
+                probe = await page.evaluate("document.querySelector('[data-probe]').getAttribute('data-probe')")
+                self.assertEqual(errors, [])
+                self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+                loads.append((probe, shots))
+        self.assertEqual(loads[0][0], loads[1][0])
+        for first, second in zip(loads[0][1], loads[1][1]):
+            self.assertTrue(np.array_equal(first, second))
+
+    async def test_clocks_are_frozen_and_date_still_works(self):
+        async with studio_page(plain_film('')) as (page, errors):
+            values = await page.evaluate("""(() => {
+                const a = [Date.now(), new Date().getTime(), performance.now()];
+                const until = Date.now; let spin = 0; for (let i = 0; i < 3e6; i++) spin += i;
+                const b = [Date.now(), new Date().getTime(), performance.now()];
+                return {a, b, spin: spin > 0,
+                        explicit: new Date(0).getTime(), parts: new Date(2020, 0, 2).getDate(),
+                        utc: Date.UTC(2020, 0, 1), parse: Date.parse('2020-01-01T00:00:00Z'),
+                        isDate: new Date() instanceof Date, str: typeof Date(), same: Date() === Date(),
+                        random: [Math.random(), Math.random()].every(x => x >= 0 && x < 1)};
+            })()""")
+            self.assertEqual(values['a'], values['b'])
+            self.assertEqual(values['a'][0], values['a'][1])
+            self.assertEqual(values['explicit'], 0)
+            self.assertEqual(values['parts'], 2)
+            self.assertEqual(values['utc'], 1577836800000)
+            self.assertEqual(values['parse'], 1577836800000)
+            self.assertTrue(values['isDate'] and values['same'] and values['random'])
+            self.assertEqual(values['str'], 'string')
+            self.assertEqual(errors, [])
 
 if __name__ == '__main__':
     from renderer.resources import limit_cpu_affinity

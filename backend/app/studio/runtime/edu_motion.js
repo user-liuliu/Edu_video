@@ -23,6 +23,52 @@
     return gsapSet(targets, Object.assign({immediateRender: true}, vars));
   };
 
+  // Determinism across page loads: inspect and export each open a fresh page, so nothing a
+  // film can read may differ between loads. The lint rejects direct use of these, but an
+  // alias it cannot see (`const M = Math; M['ran' + 'dom']()`) would still reach them, so
+  // they are replaced before any character or segment code runs.
+  // - Math.random and crypto.getRandomValues draw from one PRNG with a constant seed. The
+  //   sequence depends only on the order of calls, which is the same on every load. Segment
+  //   code should still use ctx.random() (seeded per segment, independent of other code).
+  // - Date.now(), new Date() and Date() without arguments, and performance.now(), return a
+  //   fixed instant. Dates built from arguments, Date.UTC and Date.parse work as usual.
+  // The vendored libraries load before this file. GSAP keeps the real Date.now it captured
+  // for its ticker, which is asleep (timelines only move by seek); three.js only uses
+  // Math.random for object ids and performance.now for its Clock, never for drawing.
+  var FIXED_EPOCH = Date.UTC(2024, 0, 1);  // ms since 1970
+  var RANDOM_SEED = 0x5eed1234;
+  var fixedRandom = mulberry32(RANDOM_SEED);
+  Math.random = function random() { return fixedRandom(); };
+  (function freezeDate(RealDate) {
+    function StudioDate() {
+      if (!(this instanceof StudioDate)) return new RealDate(FIXED_EPOCH).toString();  // Date()
+      var args = Array.prototype.slice.call(arguments);
+      return args.length ? new (Function.prototype.bind.apply(RealDate, [null].concat(args)))()
+        : new RealDate(FIXED_EPOCH);
+    }
+    StudioDate.prototype = RealDate.prototype;
+    StudioDate.now = function now() { return FIXED_EPOCH; };
+    StudioDate.UTC = RealDate.UTC;
+    StudioDate.parse = RealDate.parse;
+    window.Date = StudioDate;
+  })(Date);
+  if (window.performance) {
+    Object.defineProperty(window.performance, 'now', {value: function now() { return 0; }, configurable: true});
+  }
+  if (window.crypto && window.crypto.getRandomValues) {
+    Object.defineProperty(window.crypto, 'getRandomValues', {configurable: true, value: function getRandomValues(array) {
+      for (var i = 0; i < array.length; i++) array[i] = Math.floor(fixedRandom() * 4294967296);
+      return array;
+    }});
+    if (window.crypto.randomUUID) {
+      Object.defineProperty(window.crypto, 'randomUUID', {configurable: true, value: function randomUUID() {
+        var hex = '';
+        for (var i = 0; i < 32; i++) hex += Math.floor(fixedRandom() * 16).toString(16);
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-4' + hex.slice(13, 16) + '-a' + hex.slice(17, 20) + '-' + hex.slice(20);
+      }});
+    }
+  }
+
   var diagnostics = window.studioDiagnostics = window.studioDiagnostics || [];
   // Each entry is {segment: id or null, message}; the message already names the segment.
   function diag(message, segment) {

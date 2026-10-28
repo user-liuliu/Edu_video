@@ -149,6 +149,22 @@ def test_script_breakout_in_code_rejected():
         build_film_html([seg('a', 2)], [], style_css='</style>')
 
 
+def test_character_code_is_linted_like_segment_code():
+    for bad, label in (('const w = Math.random() * 10;', 'Math.random'),
+                       ('const t = Date.now();', 'Date.now'),
+                       ('const t = performance.now();', 'performance.now'),
+                       ('setTimeout(f, 1);', 'setTimeout'),
+                       ('globalThis.Math.random();', 'globalThis.')):
+        with pytest.raises(FilmError, match=f'角色定义：.*{label} 不允许使用'):
+            build_film_html([seg('a', 2)], [], characters_code=bad)
+    with pytest.raises(FilmError, match='角色定义：.*</script'):
+        build_film_html([seg('a', 2)], [], characters_code='x = "</script>"')
+    # Existing character code (document.createElementNS, bracket access) still passes.
+    build_film_html([seg('a', 2)], [], characters_code=(
+        "EduStudio.defineCharacter('k', function (g) { g.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'g')); });"
+        "var f = (function (lib) { return lib; })(globalThis['kate' + 'x']);"))
+
+
 def test_segment_code_is_inserted_verbatim():
     html = build_film_html([seg('a', 2, code='ctx.tl.to(1,{x:2});')], [])
     assert 'EduStudio.defineSegment("a", function(ctx){\nctx.tl.to(1,{x:2});\n});</script>' in html
@@ -220,5 +236,6 @@ def test_film_needs_webgl_only_for_code_that_uses_three():
     assert film_needs_webgl(build_film_html([seg('a', 2)], [], characters_code='const {Mesh} = THREE;'))
     assert not film_needs_webgl(build_film_html([seg('a', 2, code='const MY_THREE = 3;')], []))
     assert film_needs_webgl(build_film_html([seg('a', 2, code='const {renderer} = ctx.three();')], []))
-    assert film_needs_webgl(build_film_html([seg('a', 2)], [], characters_code='const T = window.THREE;'))
+    # window.THREE in any inline script also counts (the lint keeps it out of film code).
+    assert film_needs_webgl('<script>const T = window.THREE;</script>')
     assert not film_needs_webgl(build_film_html([seg('a', 2, code='const THREE_D = 1, x = ctx.threeish;')], []))
