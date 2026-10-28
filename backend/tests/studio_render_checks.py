@@ -32,11 +32,12 @@ def one_segment(code, *, highlights=(), end_state=None, duration=3.0, characters
 
 
 def film_with_text_at(y):
-    # A label whose box reaches into the subtitle zone, and an offstage one that must be ignored.
+    # A label whose box reaches into the subtitle zone, and an offstage one parked beyond the
+    # canvas that must be ignored.
     return one_segment(
         f"ctx.svg.innerHTML = '<text data-edu-id=\"low\" x=\"640\" y=\"{y}\" text-anchor=\"middle\" "
         "font-size=\"40\">字幕区里的字</text>' + '<text data-edu-id=\"parked\" data-edu-offstage=\"1\" "
-        "x=\"640\" y=\"700\" font-size=\"40\">候场</text>';")
+        "x=\"1400\" y=\"300\" font-size=\"40\">候场</text>';")
 
 
 def bad_film():
@@ -95,6 +96,24 @@ BUILD_LOOP = 'while (true) {}'
 PAINT_LOOP = "ctx.paint(function (t) { if (t > 1.5) { while (true) {} } });"
 THROW_BUILD = 'throw new Error("坏了");'
 THROW_PAINT = "ctx.paint(function (t) { if (t > 1) throw new Error('第二秒坏了'); });"
+STACKED = ("for (const [font, x] of [['Noto Sans SC', 100], ['LXGW WenKai', 700]]) {"
+           "  for (const [lh, top] of [[1.2, 40], [1.0, 300]]) {"
+           "    const box = document.createElement('div');"
+           "    box.style.cssText = 'position:absolute;left:' + x + 'px;top:' + top + 'px;font-size:40px;font-family:\"' + font + '\";line-height:' + lh;"
+           "    box.innerHTML = '<p style=\"margin:0\">第一行文字说明</p><p style=\"margin:0\">第二行文字说明</p><p style=\"margin:0\">第三行文字说明</p>';"
+           "    ctx.root.appendChild(box); } }")
+ON_TOP = ("for (const [id, text] of [['s1', '第一句话写在这里'], ['s2', '另一句话也在这']]) { const d = document.createElement('div');"
+          "d.setAttribute('data-edu-id', id); d.style.cssText = 'position:absolute;left:300px;top:300px;font-size:40px';"
+          "d.textContent = text; ctx.root.appendChild(d); }")
+FORMULA_BELOW = ("const t = document.createElement('div'); t.style.cssText = 'position:absolute;left:200px;top:200px;font-size:40px;line-height:1.2';"
+                 "t.innerHTML = '<p style=\"margin:0\">函数的解析式是</p>'; const f = document.createElement('div');"
+                 "f.style.marginTop = '8px'; t.appendChild(f); katex.render('y=x^2-2x-3', f); ctx.root.appendChild(t);")
+# Text in the subtitle zone from the start; the painter hangs only around 1.5 s, which the
+# state measurements at 0 and 3 s never reach but the bounds sweep does.
+LATE_PAINT_LOOP = ("ctx.svg.innerHTML = '<text data-edu-id=\"low\" x=\"640\" y=\"660\" text-anchor=\"middle\" font-size=\"40\">低处</text>';"
+                   "ctx.paint(function (t) { if (t > 1.4 && t < 1.6) { while (true) {} } });")
+PARKED_LOW = ("ctx.svg.innerHTML = '<text data-edu-id=\"parked\" data-edu-offstage=\"1\" x=\"640\" y=\"660\" "
+              "text-anchor=\"middle\" font-size=\"40\">候场</text>';")
 NETWORK = ("try { new WebSocket('ws://127.0.0.1:18999/ws'); } catch (e) {}"
            "try { fetch('http://127.0.0.1:18999/f').catch(function () {}); } catch (e) {}"
            "ctx.root.insertAdjacentHTML('beforeend', '<img src=\"http://127.0.0.1:18999/i\">');")
@@ -250,6 +269,34 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
         finally:
             server.close()
         self.assertEqual(hits, [])
+
+
+    # ---- fix round 2 ----------------------------------------------------------------------
+    async def test_stacked_lines_are_not_overlapping(self):
+        result = await inspect_film(req(seg_with_code(STACKED), checks=['overlap']))
+        self.assertEqual([i for i in result.issues if i.code == 'overlap'], [])
+
+    async def test_texts_drawn_on_top_of_each_other_overlap(self):
+        result = await inspect_film(req(seg_with_code(ON_TOP), checks=['overlap']))
+        issue = next(i for i in result.issues if i.code == 'overlap')
+        self.assertIn('s1', issue.message); self.assertIn('s2', issue.message)
+
+    async def test_formula_below_a_line_is_not_overlapping(self):
+        result = await inspect_film(req(seg_with_code(FORMULA_BELOW), checks=['overlap', 'bounds']))
+        self.assertEqual(result.issues, [])
+
+    async def test_timeout_keeps_issues_measured_before_it(self):
+        result = await inspect_film(req(seg_with_code(LATE_PAINT_LOOP), checks=['bounds']))
+        codes = [i.code for i in result.issues]
+        self.assertIn('bounds', codes, result.issues)
+        runtime = next(i for i in result.issues if i.code == 'runtime')
+        self.assertTrue(runtime.message.startswith('第 a 段：绘制超时，可能有死循环'), runtime)
+        self.assertAlmostEqual(runtime.t, 1.5, 3)
+
+    async def test_offstage_label_on_canvas_in_subtitles_is_reported(self):
+        result = await inspect_film(req(seg_with_code(PARKED_LOW), checks=['bounds']))
+        issue = next(i for i in result.issues if i.code == 'bounds')
+        self.assertIn('字幕区', issue.message); self.assertIn('parked', issue.element)
 
 
 if __name__ == '__main__':

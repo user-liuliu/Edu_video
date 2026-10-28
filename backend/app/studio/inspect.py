@@ -17,6 +17,10 @@ from app.studio.render_contract import (REVIEW_SIZE, InspectRequest, InspectResu
 GEOMETRY_MARK = '角色零件形状被修改'
 CUE_TOLERANCE = 0.15  # s: a scripted highlight must start this close to its cue
 OVERLAP_SHARE = 0.15  # of the smaller box
+# A text box is the font's whole ascent-to-descent area, much taller than the glyphs: lines
+# at line-height 1.2 already touch. For overlap only, each box is cut to its core band by
+# this share of its height at the top and at the bottom.
+OVERLAP_CORE_INSET = 0.15
 BOX_TOLERANCE = 0.5  # px
 SAMPLES_PER_SEGMENT = 10  # equal parts: 11 points with both ends
 END_EPSILON = 1e-4  # s: "the last frame" of a segment, still inside its own slot
@@ -107,7 +111,7 @@ _SAMPLE = r'''(s) => {
     const what = kind + '「' + snippet(el) + '」';
     return named && layer.contains(named) ? '[data-edu-id="' + named.getAttribute('data-edu-id') + '"] 里的 ' + what : what;
   }
-  const kept = candidates.filter((c) => !c.el.closest('[data-edu-offstage]') && visible(c.el));
+  const kept = candidates.filter((c) => visible(c.el));
   const boxes = [];
   kept.forEach((c, i) => {
     const r = rectOf(c);
@@ -116,7 +120,7 @@ _SAMPLE = r'''(s) => {
     kept.forEach((other, j) => { if (j !== i && other.el.contains(c.el)) inside.push(j); });
     boxes.push({i: i, x: r.left - ref.left, y: r.top - ref.top, w: r.width, h: r.height,
       wx: (r.left - wr.left) / kx, wy: (r.top - wr.top) / ky, ww: r.width / kx, wh: r.height / ky,
-      camera: camera, label: label(c.el), inside: inside});
+      camera: camera, offstage: !!c.el.closest('[data-edu-offstage]'), label: label(c.el), inside: inside});
   });
   return {fresh: fresh, boxes: boxes};
 }'''
@@ -132,6 +136,15 @@ def _when(segment: str, t: float, local: float) -> str:
 
 # ---- pure analysis ------------------------------------------------------------------------
 
+def _on_canvas(b: dict, width: int, height: int) -> bool:
+    return b['x'] < width and b['x'] + b['w'] > 0 and b['y'] < height and b['y'] + b['h'] > 0
+
+
+def _core(b: dict) -> tuple[float, float, float, float]:
+    inset = b['h'] * OVERLAP_CORE_INSET
+    return b['x'], b['y'] + inset, b['w'], b['h'] - 2 * inset
+
+
 def _bounds_problems(b: dict, width: int, height: int, caption_top: int) -> list[tuple[str, str]]:
     """Off-canvas is judged in stage coordinates before the camera (``wx``..), so a camera
     push-in that crops text is fine; the subtitle zone after the camera (``x``..), for boxes
@@ -139,15 +152,16 @@ def _bounds_problems(b: dict, width: int, height: int, caption_top: int) -> list
     problems = []
     wx, wy = b.get('wx', b['x']), b.get('wy', b['y'])
     wr, wb = wx + b.get('ww', b['w']), wy + b.get('wh', b['h'])
-    sides = [name for name, over in (('左', -wx), ('上', -wy), ('右', wr - width), ('下', wb - height))
-             if over > BOX_TOLERANCE]
+    sides = [] if b.get('offstage') else [
+        name for name, over in (('左', -wx), ('上', -wy), ('右', wr - width), ('下', wb - height))
+        if over > BOX_TOLERANCE]
     if sides:
         problems.append(('canvas', (
             f'（镜头移动前的外框 x {_fmt(wx)}–{_fmt(wr)}，y {_fmt(wy)}–{_fmt(wb)}）超出画布（{"、".join(sides)}边），'
             f'请移回 {width}×{height} 的画布里；如果是故意放在画外再移进来或移出去的文字，'
             '请给它加 data-edu-offstage')))
     right, bottom = b['x'] + b['w'], b['y'] + b['h']
-    on_canvas = b['x'] < width and right > 0 and b['y'] < height and bottom > 0
+    on_canvas = _on_canvas(b, width, height)
     if on_canvas and bottom > caption_top + BOX_TOLERANCE:
         camera = '镜头移动后，' if b.get('camera') else ''
         problems.append(('captions', (
@@ -180,11 +194,15 @@ def box_issues(samples: list[dict], checks: set[str], width: int, height: int) -
                 for b in boxes[i + 1:]:
                     if a['i'] in b['inside'] or b['i'] in a['inside']:
                         continue
-                    w = min(a['x'] + a['w'], b['x'] + b['w']) - max(a['x'], b['x'])
-                    h = min(a['y'] + a['h'], b['y'] + b['h']) - max(a['y'], b['y'])
+                    if not (_on_canvas(a, width, height) and _on_canvas(b, width, height)):
+                        continue  # parked beyond the canvas: nobody sees it
+                    ax, ay, aw, ah = _core(a)
+                    bx, by, bw, bh = _core(b)
+                    w = min(ax + aw, bx + bw) - max(ax, bx)
+                    h = min(ay + ah, by + bh) - max(ay, by)
                     if w <= 0 or h <= 0:
                         continue
-                    share = w * h / min(a['w'] * a['h'], b['w'] * b['h'])
+                    share = w * h / min(aw * ah, bw * bh)
                     if share <= OVERLAP_SHARE:
                         continue
                     key = ('overlap', segment) + tuple(sorted((a['label'], b['label'])))
@@ -386,6 +404,7 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
     frames: list[dict] = []
     first_seen: dict[str, float] = {}
     measure = bool(checks & {'bounds', 'overlap'})
+    measured: list[dict] = []
 
     try:
         async with studio_page(req.html, width=width, height=height) as (page, errors):
@@ -418,7 +437,6 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
                 issues += await _determinism_issues(page, segments, starts)
 
             if checks & {'bounds', 'overlap', 'geometry'}:
-                measured = []
                 for s in segments:
                     for sample in _samples(s, starts[s['id']], collected[s['id']]):
                         got = await _step(page, page.evaluate(_SAMPLE, {**sample, 'measure': measure}), sample['t'])
@@ -427,6 +445,7 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
                         if got['boxes'] is not None:
                             measured.append({**sample, 'boxes': got['boxes']})
                 issues += box_issues(measured, checks, width, height)
+                measured = []  # counted
 
             for t in req.frame_times:
                 frames.append({'t': t, 'png_base64': _review_png(await _screenshot(page, t))})
@@ -435,4 +454,5 @@ async def inspect_film(req: InspectRequest) -> InspectResult:
             runtime = diagnostic_issues(diagnostics, list(errors), first_seen)
     except StudioTimeout as error:
         runtime = [i.model_copy(update={'t': first_seen.get(i.message, i.t)}) for i in from_timeout(error)]
+        issues += box_issues(measured, checks, width, height)  # what the sweep measured before it
     return InspectResult(issues=runtime + issues, frames=frames, states=states)

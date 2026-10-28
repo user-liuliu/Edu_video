@@ -79,11 +79,11 @@ def test_inspect_result_shape():
 
 # ---- pure analysis helpers ----------------------------------------------------------------
 
-def box(i, x, y, w, h, label='[data-edu-id="t"]', inside=(), world=None, camera=False):
+def box(i, x, y, w, h, label='[data-edu-id="t"]', inside=(), world=None, camera=False, offstage=False):
     """Screen box (x, y, w, h) after the camera; `world` is the box before it (default: same)."""
     wx, wy, ww, wh = world or (x, y, w, h)
     return {'i': i, 'x': x, 'y': y, 'w': w, 'h': h, 'wx': wx, 'wy': wy, 'ww': ww, 'wh': wh,
-            'camera': camera, 'label': label, 'inside': list(inside)}
+            'camera': camera, 'offstage': offstage, 'label': label, 'inside': list(inside)}
 
 
 def test_bounds_measures_canvas_before_the_camera_and_subtitles_after_it():
@@ -128,6 +128,32 @@ def test_overlap_threshold_and_nested_elements():
     assert run([a, under]) == [] and run([a, nested]) == []
     # Only the requested checks run.
     assert box_issues([{'segment': 'a', 't': 2, 'local': 2, 'boxes': [a, over]}], {'bounds'}, 1280, 720) == []
+
+
+def test_overlap_uses_the_core_band_of_each_text_box():
+    from app.studio.inspect import OVERLAP_CORE_INSET, box_issues
+    assert OVERLAP_CORE_INSET == 0.15
+    run = lambda boxes: box_issues([{'segment': 'a', 't': 0, 'local': 0, 'boxes': boxes}], {'overlap'}, 1280, 720)
+    # Stacked 40 px lines: the content boxes (58 px tall) overlap by 10 px at line-height 1.2
+    # (48 px apart) and by 18 px at 1.0, which is 17 % / 31 % of a box; the glyph bodies do not.
+    for step in (48, 40):
+        assert run([box(0, 100, 100, 300, 58, '[data-edu-id="l1"]'),
+                    box(1, 100, 100 + step, 300, 58, '[data-edu-id="l2"]')]) == []
+    # Two texts drawn on top of each other are still reported.
+    issues = run([box(0, 100, 100, 300, 58, '[data-edu-id="l1"]'), box(1, 100, 104, 280, 58, '[data-edu-id="l2"]')])
+    assert len(issues) == 1 and issues[0].code == 'overlap'
+
+
+def test_offstage_only_exempts_off_canvas():
+    from app.studio.inspect import box_issues
+    run = lambda b, checks={'bounds'}: box_issues([{'segment': 'a', 't': 0, 'local': 0, 'boxes': b}], checks, 1280, 720)
+    assert run([box(0, 1300, 100, 200, 40, offstage=True)]) == []                    # parked off canvas
+    issues = run([box(0, 500, 640, 200, 40, offstage=True)])                       # visible, in the subtitles
+    assert len(issues) == 1 and '字幕区' in issues[0].message
+    # Two labels parked on top of each other beyond the canvas cannot be seen: no overlap.
+    parked = [box(0, 1300, 100, 200, 40, '[data-edu-id="p"]', offstage=True),
+              box(1, 1300, 100, 200, 40, '[data-edu-id="q"]', offstage=True)]
+    assert run(parked, {'overlap'}) == []
 
 
 def test_highlight_issues():
