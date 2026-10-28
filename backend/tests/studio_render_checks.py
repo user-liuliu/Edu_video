@@ -599,6 +599,79 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(result.states), {'parabola', 'vertex', 'story'})
 
 
+    # ---- final fix wave: nothing a studio job writes outlives it in /tmp -----------------
+    async def test_timed_out_and_killed_jobs_leave_nothing_in_tmp(self):
+        """A 504 timeout and a worker killed mid-render (as by the OOM killer) both leave
+        /tmp as it was: no request folder, no audio, no Chromium profile."""
+        import asyncio
+        import os
+        from renderer import app as service
+        root = Path(tempfile.gettempdir())
+
+        def snapshot():
+            return set(os.listdir(root))
+
+        seen = set()
+
+        async def watch():
+            # Every path that shows up under /tmp while the job runs, to prove it was mid-work.
+            while True:
+                for base, dirs, files in os.walk(root):
+                    seen.update(os.path.join(base, n) for n in dirs + files)
+                await asyncio.sleep(0.05)
+
+        # Warm-up: per-user caches (fontconfig and the like under HOME) may appear once.
+        response, _ = await post('/studio/inspect', req(one_segment(''), checks=['bounds']))
+        self.assertEqual(response.status_code, 200, response.text)
+        before = snapshot()
+
+        long_render = render_req(one_segment('', duration=20.0))
+        saved_timeout, saved_spawn = service.RENDER_TIMEOUT, asyncio.create_subprocess_exec
+        watcher = asyncio.ensure_future(watch())
+        try:
+            service.RENDER_TIMEOUT = 2.5  # Chromium is up, the inspect is not finished
+            response, _ = await post('/studio/inspect', req(seg_with_code(PAINT_LOOP)))
+            self.assertEqual(response.status_code, 504, response.text)
+            self.assertTrue(any('playwright' in p or 'chrom' in p.lower() for p in seen), sorted(seen)[:40])
+            self.assertEqual(snapshot() - before, set(), 'timed-out inspect left files in /tmp')
+
+            service.RENDER_TIMEOUT = 6  # the 20 s film is still being encoded
+            seen.clear()
+            response, _ = await post('/studio/render', long_render)
+            self.assertEqual(response.status_code, 504, response.text)
+            self.assertTrue(any(p.endswith('audio.wav') for p in seen), sorted(seen)[:40])
+            self.assertEqual(snapshot() - before, set(), 'timed-out render left files in /tmp')
+
+            service.RENDER_TIMEOUT = saved_timeout
+            seen.clear()
+            workers = []
+
+            async def spawn(*args, **kwargs):
+                process = await saved_spawn(*args, **kwargs)
+                workers.append(process)
+                return process
+
+            async def kill_mid_render():
+                while not any(p.endswith('audio.wav') for p in seen):
+                    await asyncio.sleep(0.05)
+                await asyncio.sleep(1.5)
+                os.killpg(workers[0].pid, 9)  # the whole group, as the kernel's OOM kill of a cgroup
+            asyncio.create_subprocess_exec = spawn
+            killer = asyncio.ensure_future(kill_mid_render())
+            response, _ = await post('/studio/render', long_render)
+            await killer
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertEqual(workers[0].returncode, -9)
+            self.assertEqual(snapshot() - before, set(), 'killed render left files in /tmp')
+            asyncio.create_subprocess_exec = saved_spawn
+            response, _ = await post('/studio/inspect', req(one_segment(''), checks=['bounds']))
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(snapshot() - before, set(), 'finished inspect left files in /tmp')
+            self.assertFalse(service.busy)
+        finally:
+            watcher.cancel()
+            service.RENDER_TIMEOUT, asyncio.create_subprocess_exec = saved_timeout, saved_spawn
+
 if __name__ == '__main__':
     from renderer.resources import limit_cpu_affinity
     limit_cpu_affinity()

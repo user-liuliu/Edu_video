@@ -4,6 +4,10 @@ Reads ``request.json`` and writes ``result.json`` (inspect) or ``output.mp4`` +
 ``metadata.json`` (render). A request that does not match its own film writes
 ``error.json`` with code ``studio_input``, and a film that reports runtime problems while
 being exported writes code ``studio_runtime`` with the issues; both exit 2.
+
+Everything the worker writes stays inside ``<folder>``: the service points TMPDIR at
+``<folder>/tmp`` (Chromium's profile, Playwright's artifacts) and removes the folder after
+the worker exits or is killed.
 """
 import asyncio
 import json
@@ -26,7 +30,8 @@ async def run(operation, folder):
         (folder / 'result.json').write_text(result.model_dump_json(), encoding='utf-8')
     elif operation == 'render':
         from app.studio.export import render_film
-        metadata = await render_film(RenderRequest.model_validate_json(data), folder / 'output.mp4')
+        metadata = await render_film(RenderRequest.model_validate_json(data), folder / 'output.mp4',
+                                     work_dir=folder)
         (folder / 'metadata.json').write_text(json.dumps(metadata, ensure_ascii=False), encoding='utf-8')
     else:
         raise ValueError('Unsupported operation')

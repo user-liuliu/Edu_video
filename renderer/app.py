@@ -4,6 +4,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -129,6 +130,23 @@ async def read_limited_body(request):
     return data
 
 
+def studio_worker_env(scratch):
+    """The worker's environment with every temp directory inside its request folder, so the
+    files Chromium and Playwright write (profile, artifacts) go when the folder goes."""
+    env=dict(os.environ)
+    env.update(TMPDIR=str(scratch),TEMP=str(scratch),TMP=str(scratch))
+    return env
+
+
+async def remove_studio_folder(folder):
+    """Remove a studio request folder. A browser process that outlived its killed worker by a
+    moment can still be writing into it, so retry until the folder is really gone."""
+    for _ in range(20):
+        await asyncio.to_thread(shutil.rmtree,folder,True)
+        if not os.path.exists(folder): return
+        await asyncio.sleep(0.25)
+
+
 async def execute_studio(request,operation):
     from app.studio.render_contract import InspectRequest, RenderRequest
     from app.studio.runtime.assets import runtime_digest
@@ -143,17 +161,19 @@ async def execute_studio(request,operation):
             body=model.model_validate_json(data)
         except (ValidationError,ValueError): raise HTTPException(422,'渲染参数无效') from None
         if body.runtime_digest!=runtime_digest(): raise HTTPException(409,'动效运行版本不一致')
-        with tempfile.TemporaryDirectory(prefix='edu-studio-') as folder:
-            folder=Path(folder)
+        folder=Path(tempfile.mkdtemp(prefix='edu-studio-'))
+        try:
             (folder/'request.json').write_text(body.model_dump_json(),encoding='utf-8')
+            scratch=folder/'tmp'
+            scratch.mkdir()
             kwargs={'start_new_session':True} if os.name!='nt' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
-            process=await asyncio.create_subprocess_exec(sys.executable,'-m','renderer.studio_worker',operation,str(folder),stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL,**kwargs)
+            process=await asyncio.create_subprocess_exec(sys.executable,'-m','renderer.studio_worker',operation,str(folder),stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL,env=studio_worker_env(scratch),**kwargs)
             try:
                 await asyncio.wait_for(process.wait(),timeout=RENDER_TIMEOUT)
             except asyncio.TimeoutError:
                 raise HTTPException(504,'渲染超时，请缩短片段或简化画面') from None
             finally:
-                # Reap before TemporaryDirectory removes browser and encoder files.
+                # Reap before the folder (browser profile, audio, encoder files) is removed.
                 await terminate_process(process)
             if process.returncode:
                 error_file=folder/'error.json'
@@ -171,6 +191,8 @@ async def execute_studio(request,operation):
             output=folder/'output.mp4'
             if not output.exists() or output.stat().st_size>MAX_OUTPUT_BYTES: raise HTTPException(413,'视频输出过大')
             return {'mp4_base64':base64.b64encode(output.read_bytes()).decode(),'metadata':json.loads((folder/'metadata.json').read_text(encoding='utf-8'))}
+        finally:
+            await remove_studio_folder(folder)
     finally:
         busy=False
 

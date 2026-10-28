@@ -8,6 +8,7 @@ instead of exporting a film with blank stretches.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 from pathlib import Path
 import subprocess
@@ -66,14 +67,21 @@ async def _frames(req: RenderRequest, process) -> None:
         raise StudioRuntimeError(from_timeout(error)) from None
 
 
-async def render_film(req: RenderRequest, output: Path) -> dict:
-    """Encode the film to ``output``; returns ``videos.export.probe`` metadata."""
+async def render_film(req: RenderRequest, output: Path, *, work_dir: Path | None = None) -> dict:
+    """Encode the film to ``output``; returns ``videos.export.probe`` metadata.
+
+    ``audio.wav`` and ``encoder.log`` go to ``work_dir`` when given (the renderer worker passes
+    its request folder, which the service removes even when it kills the worker), otherwise
+    to a temporary folder removed on return.
+    """
     from app.videos.export import decode_check, executable, probe
 
     data = film_data(req.html)
     check_film(data, req.duration, (req.width, req.height))
     output = Path(output)
-    with tempfile.TemporaryDirectory(prefix='ev-studio-') as folder:
+    scratch = (contextlib.nullcontext(str(work_dir)) if work_dir is not None
+               else tempfile.TemporaryDirectory(prefix='ev-studio-'))
+    with scratch as folder:
         audio = Path(folder) / 'audio.wav'
         audio.write_bytes(decode_audio(req.audio_base64))
         command = encoder_command(executable('ffmpeg'), req.fps, audio, req.duration, output)
