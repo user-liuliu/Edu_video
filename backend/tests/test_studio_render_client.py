@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app.studio.render_client import StudioRenderError, StudioRenderer
+from app.studio.render_client import StudioRenderError, StudioRenderer, StudioUnavailable
 from app.studio.render_contract import InspectRequest, Issue, RenderRequest
 
 DIGEST = '0' * 64
@@ -139,33 +139,88 @@ async def test_409_means_runtime_digest_mismatch():
         await make(lambda request: httpx.Response(409)).render(render_request())
 
 
-@pytest.mark.parametrize('status', [413, 500, 504])
-async def test_other_http_errors_are_unavailable(status):
-    with pytest.raises(ValueError, match='渲染服务暂时不可用'):
-        await make(lambda request: httpx.Response(status)).inspect(inspect_request())
+async def unavailable(call, handler):
+    with pytest.raises(StudioUnavailable) as caught:
+        await call(make(handler))
+    assert isinstance(caught.value, ValueError)
+    return caught.value
 
 
-async def test_network_failure_is_unavailable():
+inspect_call = lambda renderer: renderer.inspect(inspect_request())  # noqa: E731
+render_call = lambda renderer: renderer.render(render_request())  # noqa: E731
+
+
+async def test_504_is_timeout():
+    error = await unavailable(render_call, lambda request: httpx.Response(504))
+    assert (error.reason, error.status) == ('timeout', 504)
+    assert str(error) == '渲染超时，请缩短片段或简化画面'
+
+
+async def test_client_side_timeout_is_timeout():
+    def handler(request):
+        raise httpx.ReadTimeout('slow')
+
+    error = await unavailable(inspect_call, handler)
+    assert (error.reason, error.status) == ('timeout', None)
+    assert str(error) == '渲染超时，请缩短片段或简化画面'
+
+
+async def test_413_is_too_large():
+    error = await unavailable(render_call, lambda request: httpx.Response(413))
+    assert (error.reason, error.status) == ('too_large', 413)
+    assert str(error) == '渲染内容过大，请缩短片段'
+
+
+async def test_oversized_response_is_too_large(monkeypatch):
+    monkeypatch.setattr('app.studio.render_client.MAX_INSPECT_BYTES', 100)
+    error = await unavailable(inspect_call, lambda request: httpx.Response(200, content=b'x' * 1000))
+    assert (error.reason, error.status) == ('too_large', 200)
+    assert str(error) == '渲染内容过大，请缩短片段'
+
+
+@pytest.mark.parametrize('status', [400, 500, 502, 503])
+async def test_other_http_errors(status):
+    error = await unavailable(inspect_call, lambda request: httpx.Response(status))
+    assert (error.reason, error.status) == ('http_error', status)
+    assert str(error) == '渲染服务暂时不可用'
+
+
+async def test_network_failure_is_network():
     def handler(request):
         raise httpx.ConnectError('down')
 
-    with pytest.raises(ValueError, match='渲染服务暂时不可用'):
-        await make(handler).render(render_request())
+    error = await unavailable(render_call, handler)
+    assert (error.reason, error.status) == ('network', None)
+    assert str(error) == '渲染服务暂时不可用'
 
 
-async def test_invalid_json_or_shape_is_unavailable():
-    with pytest.raises(ValueError, match='渲染服务暂时不可用'):
-        await make(lambda request: httpx.Response(200, content=b'<html>')).inspect(inspect_request())
-    with pytest.raises(ValueError, match='渲染服务暂时不可用'):
-        await make(lambda request: httpx.Response(200, json={'mp4_base64': 'AAAA'})).render(render_request())
-    with pytest.raises(ValueError, match='渲染服务暂时不可用'):
-        await make(lambda request: httpx.Response(200, json={'nope': 1})).inspect(inspect_request())
+async def test_invalid_json_or_shape_is_bad_response():
+    good = base64.b64encode(b'mp4').decode()
+    bodies = [
+        (inspect_call, httpx.Response(200, content=b'<html>')),
+        (inspect_call, httpx.Response(200, json={'nope': 1})),
+        (render_call, httpx.Response(200, content=b'<html>')),
+        (render_call, httpx.Response(200, json=[1])),
+        (render_call, httpx.Response(200, json={'mp4_base64': good})),
+        (render_call, httpx.Response(200, json={'metadata': {}})),
+        (render_call, httpx.Response(200, json={'mp4_base64': good, 'metadata': 'x'})),
+        (render_call, httpx.Response(200, json={'mp4_base64': '', 'metadata': {}})),
+        (render_call, httpx.Response(200, json={'mp4_base64': 'AAA', 'metadata': {}})),  # bad padding
+        (render_call, httpx.Response(200, json={'mp4_base64': '!!!!', 'metadata': {}})),  # not base64
+        (render_call, httpx.Response(200, json={'mp4_base64': 5, 'metadata': {}})),
+    ]
+    for call, response in bodies:
+        error = await unavailable(call, lambda request, response=response: response)
+        assert (error.reason, error.status) == ('bad_response', None)
+        assert str(error) == '渲染服务暂时不可用'
 
 
-async def test_oversized_response_is_rejected(monkeypatch):
-    monkeypatch.setattr('app.studio.render_client.MAX_INSPECT_BYTES', 100)
-    with pytest.raises(ValueError, match='渲染服务暂时不可用'):
-        await make(lambda request: httpx.Response(200, content=b'x' * 1000)).inspect(inspect_request())
+async def test_oversized_error_body_is_cut_off(monkeypatch):
+    monkeypatch.setattr('app.studio.render_client.MAX_ERROR_BYTES', 50)
+    body = b'{"detail": {"code": "studio_input", "message": "' + b'x' * 5000 + b'"}}'
+    with pytest.raises(StudioRenderError) as caught:
+        await make(lambda request: httpx.Response(422, content=body)).inspect(inspect_request())
+    assert caught.value.issues == [] and caught.value.code is None
 
 
 async def test_unconfigured_renderer_url():
