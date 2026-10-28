@@ -213,6 +213,17 @@ ctx.motion.tex('y=\\htmlClass{t-a}{x^2}-2x-3', {x: 900, y: 210, id: 'term'});
 ctx.motion.highlight('.t-a', ctx.cue('顶点'));
 ```
 
+## 段与段之间（接缝）
+
+两段之间的接缝由程序处理，段代码不用管时间怎么接。
+- `continue`（接续）：接缝期间画面停在上一段的最后一帧，下一段从这一帧原样开始。所以上一段结束时的画面就是下一段的开头：镜头、角色、`endState` 保留的元素都要和下一段的 `startState` 对得上，结尾不要把东西淡出或移走。
+- `transition`（转场）：程序把上一段停在最后一帧、下一段停在第一帧，再用 `push`（推移）、`wipe`（擦除）、`zoom`（缩放穿越）、`fade`（淡入淡出）或 `match`（匹配剪辑）过渡。段代码不要自己画转场，开头不用淡入，结尾也不用淡出。
+- `match`：两段里 `data-edu-match` 值相同的元素，从上一段结尾的位置和大小平滑移到下一段开头的位置和大小，其余内容在转场中点直接切换。每段里同一个值只给一个元素。
+```js
+ctx.svg.insertAdjacentHTML('beforeend',
+  '<circle data-edu-id="sun" data-edu-match="sun" cx="1100" cy="120" r="50" fill="#d69e2e"/>');
+```
+
 ## 检查用（段代码不要调用）
 
 - `EduFilm.instantiate(id) -> {tl, duration, cue, cueEnd, state(t), highlights(), geometryDigest(), destroy()}`：在不可见的沙盒里重新构建一段。`state(t)` 定位到 t 秒后测量镜头和角色的实际值，返回 StageState；`highlights()` 返回本段每次 `highlight`、`spotlight`、`circle` 调用的记录 `{target, at, segment, kind, labels}`（`target` 是传入的选择器，传元素时写成它的 `data-edu-id` 选择器；`labels` 是目标自己或最近的祖先上的 `data-edu-id`）；`geometryDigest()` 是所有角色零件内部形状的哈希。检查用的夹具可以把函数放进 `ctx.__probes`，它们会出现在 `instantiate` 的结果上。

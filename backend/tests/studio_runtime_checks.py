@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import unittest
 
-from app.studio.contract import ActorState, Camera, Segment, StageState
+from app.studio.contract import ActorState, Camera, Seam, Segment, StageState
 from app.studio.film import build_film_html
 from app.studio.page import studio_page
 from app.studio.runtime.assets import RUNTIME_DIR
@@ -29,6 +29,8 @@ EFFECTS = (FIXTURES / 'effects_segment.js').read_text(encoding='utf-8')
 EMPHASIS = (FIXTURES / 'emphasis_segment.js').read_text(encoding='utf-8')
 LAYOUT_DEFAULTS = (FIXTURES / 'layout_defaults_segment.js').read_text(encoding='utf-8')
 OVERLAP = (FIXTURES / 'overlap_segment.js').read_text(encoding='utf-8')
+SEAM_A = (FIXTURES / 'seam_a_segment.js').read_text(encoding='utf-8')
+SEAM_B = (FIXTURES / 'seam_b_segment.js').read_text(encoding='utf-8')
 SUBTITLE_TOP = 625  # the program draws subtitles from this y down on a 1280x720 canvas
 API_MD = RUNTIME_DIR / 'API.md'
 
@@ -68,6 +70,23 @@ def effects_film(code=EFFECTS):
     segment = Segment(id='fx', code=code, duration=7.0, words=WORDS, narration=NARRATION,
                       start_state=StageState(), end_state=StageState())
     return build_film_html([segment], [], style_css='.edu-stage{background:#fdfaf3}')
+
+
+def two_segment_film(*, seam='continue', transition=None, gap=0.4, b_code=SEAM_B):
+    """Segment a lasts 2 s (fixture seam_a_segment.js), then a seam of `gap` seconds, then
+    segment b (2 s). a says 第一句。 from 0.2 to 1.8 s, b says 第二句。 from 0.1 to 1.6 s."""
+    spoken = {'a': ('第一句。', [_ev(.2, .6, '第一'), _ev(1.2, .6, '句')]),
+              'b': ('第二句。', [_ev(.1, .6, '第二'), _ev(1.0, .6, '句')])}
+    segments = [Segment(id=sid, code=code, duration=2.0, words=align_words(*spoken[sid]),
+                        narration=spoken[sid][0], start_state=StageState(), end_state=StageState())
+                for sid, code in (('a', SEAM_A), ('b', b_code))]
+    seams = [Seam(kind=seam, transition=transition, duration=gap)]
+    return build_film_html(segments, seams, style_css='.edu-stage{background:#fdfaf3}')
+
+
+async def frame_at(page, t):
+    await page.evaluate('t=>window.renderFrame(t)', t)
+    return await page.screenshot()
 
 
 def same_png(first, second):
@@ -357,6 +376,87 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             await page.wait_for_timeout(300)
             b = await page.screenshot()
             self.assertTrue(same_png(a, b))
+
+    async def test_continue_seam_holds_last_frame(self):
+        async with studio_page(two_segment_film(seam='continue', gap=0.4)) as (page, errors):
+            # Segment a lasts 2 s, b starts at 2.4 s.
+            a_end = await frame_at(page, 1.9999)
+            mid = await frame_at(page, 2.2)
+            self.assertTrue(same_png(a_end, mid))
+            self.assertFalse(same_png(mid, await frame_at(page, 2.4)))  # b's first frame
+            self.assertTrue(same_png(mid, await frame_at(page, 2.2)))  # reached backward
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+
+    async def test_each_transition_runs_inside_gap_only(self):
+        for name in ('push', 'wipe', 'zoom', 'match', 'fade'):
+            async with studio_page(two_segment_film(seam='transition', transition=name, gap=0.8)) as (page, errors):
+                a_end = await frame_at(page, 1.9999)
+                start, middle, end = [await frame_at(page, t) for t in (2.0, 2.4, 2.8)]
+                self.assertTrue(same_png(a_end, start), name)
+                self.assertFalse(same_png(start, middle), name)
+                self.assertFalse(same_png(middle, end), name)
+                self.assertTrue(same_png(end, await frame_at(page, 2.8)), name)
+                self.assertTrue(same_png(middle, await frame_at(page, 2.4)), name)  # reached backward
+                self.assertEqual(errors, [], name)
+                self.assertEqual(await page.evaluate('window.studioDiagnostics'), [], name)
+                self.assertEqual(await page.evaluate('typeof EduStudio.transitions.' + name), 'function')
+
+    async def test_caption_shows_current_sentence(self):
+        caption = '.edu-caption'
+        async with studio_page(two_segment_film(seam='continue', gap=0)) as (page, _):
+            await page.evaluate('t=>window.renderFrame(t)', 0.5)
+            self.assertEqual(await page.locator(caption).inner_text(), '第一句。')
+            box = await page.locator(caption).bounding_box()
+            self.assertGreaterEqual(box['y'], SUBTITLE_TOP)
+            self.assertLessEqual(box['y'] + box['height'], 720)
+            self.assertAlmostEqual(box['x'] + box['width'] / 2, 640, 0)
+            css = await page.locator(caption).evaluate(
+                'e=>[getComputedStyle(e).fontSize, getComputedStyle(e).fontFamily, getComputedStyle(e).backgroundColor]')
+            self.assertEqual(css[0], '30px')
+            self.assertIn('Noto Sans SC', css[1])
+            self.assertRegex(css[2], r'^rgba\(.*, 0\.\d+\)$')  # translucent backing
+            for t, text in ((1.9, ''), (2.5, '第二句。'), (0.5, '第一句。'), (0.1, '')):
+                await page.evaluate('t=>window.renderFrame(t)', t)
+                self.assertEqual((await page.locator(caption).text_content()).strip(), text, t)
+
+    async def test_broken_segment_is_reported_by_id(self):
+        from PIL import Image
+
+        def pixel(png, xy):
+            return Image.open(io.BytesIO(png)).convert('RGB').getpixel(xy)
+        async with studio_page(two_segment_film(b_code='throw new Error("坏了")')) as (page, errors):
+            diag = await page.evaluate('window.studioDiagnostics')
+            self.assertTrue(any(d['segment'] == 'b' and d['message'].startswith('第 b 段：')
+                                and '坏了' in d['message'] for d in diag), diag)
+            # Segment a still draws: its blue square is at x 175..335 at 0.5 s.
+            r, g, b = pixel(await frame_at(page, 0.5), (250, 230))
+            self.assertTrue(abs(r - 43) < 8 and abs(g - 108) < 8 and abs(b - 176) < 8, (r, g, b))
+            # b's layer is empty: background where a's square was and nothing else.
+            empty = await frame_at(page, 3.5)
+            for xy in ((250, 230), (450, 230), (900, 250)):
+                self.assertEqual(pixel(empty, xy), (253, 250, 243), xy)  # stage background only
+            self.assertEqual(errors, [])
+
+    async def test_held_outgoing_layer_keeps_its_last_frame_in_transition(self):
+        # a's word is highlighted green from 1.5 s to its end; its canvas bar is full from 1.5 s.
+        probe = '''(()=>{const a=document.querySelector('.edu-stage [data-segment=a]');
+            const px=a.querySelector('canvas').getContext('2d').getImageData(150, 50, 1, 1).data;
+            return [getComputedStyle(a.querySelector('[data-edu-id=word]')).fill,
+                    Array.from(px).join(','), getComputedStyle(a).visibility]})()'''
+        async with studio_page(two_segment_film(seam='transition', transition='push', gap=0.8)) as (page, errors):
+            a_end = await frame_at(page, 1.9999)
+            seen = []
+            for before in (0, 4.8, 1.0, 3.5, 2.0):  # reach the middle of the push from both sides
+                await page.evaluate('t=>window.renderFrame(t)', before)
+                shot = await frame_at(page, 2.4)
+                seen.append((shot, await page.evaluate(probe)))
+            for shot, state in seen:
+                self.assertEqual(state, ['rgb(0, 170, 0)', '0,0,0,255', 'visible'])
+                self.assertTrue(same_png(shot, seen[0][0]))
+            self.assertFalse(same_png(seen[0][0], a_end))  # the push is under way
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
 
 
 if __name__ == '__main__':

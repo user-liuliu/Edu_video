@@ -752,7 +752,7 @@
   function createSegment(meta, host, size) {
     var id = meta.id;
     var build = segments.get(id);
-    if (!build) throw new Error('第 ' + id + ' 段没有定义（缺少 EduStudio.defineSegment）');
+    if (!build) throw new Error('第 ' + id + ' 段：没有定义（缺少 EduStudio.defineSegment）');
     var W = size.width, H = size.height;
     var where = '第 ' + id + ' 段';
     function fail(message) {
@@ -777,7 +777,9 @@
       });
     }
 
-    var layer = htmlEl('edu-layer', 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px;overflow:hidden');
+    var layer = document.createElement('section');
+    layer.className = 'edu-layer';
+    layer.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px;overflow:hidden';
     layer.setAttribute('data-segment', id);
     var cam = htmlEl('edu-camera', 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px;transform-origin:' + (W / 2) + 'px ' + (H / 2) + 'px');
     var root = htmlEl('edu-world', 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px');
