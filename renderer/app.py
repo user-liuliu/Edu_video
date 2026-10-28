@@ -114,3 +114,68 @@ async def ppt_graphic(request:Request):
             if output.stat().st_size>MAX_PNG*1.4+30000:raise HTTPException(413,'信息图输出过大')
             return json.loads(output.read_text())
     finally:busy=False
+
+
+# ---- studio pipeline: /studio/inspect and /studio/render -----------------------------------
+# Same busy flag, size limit, timeout and subprocess pattern as execute(); separate code path.
+
+async def read_limited_body(request):
+    length=request.headers.get('content-length')
+    if length and (not length.isdigit() or int(length)>MAX_REQUEST): raise HTTPException(413,'请求过大')
+    data=bytearray()
+    async for part in request.stream():
+        data.extend(part)
+        if len(data)>MAX_REQUEST: raise HTTPException(413,'请求过大')
+    return data
+
+
+async def execute_studio(request,operation):
+    from app.studio.render_contract import InspectRequest, RenderRequest
+    from app.studio.runtime.assets import runtime_digest
+    global busy
+    if busy: raise HTTPException(429,'渲染服务忙，请稍后重试',headers={'Retry-After':'2'})
+    busy=True
+    process=None
+    try:
+        data=await read_limited_body(request)
+        model=InspectRequest if operation=='inspect' else RenderRequest
+        try:
+            body=model.model_validate_json(data)
+        except (ValidationError,ValueError): raise HTTPException(422,'渲染参数无效') from None
+        if body.runtime_digest!=runtime_digest(): raise HTTPException(409,'动效运行版本不一致')
+        with tempfile.TemporaryDirectory(prefix='edu-studio-') as folder:
+            folder=Path(folder)
+            (folder/'request.json').write_text(body.model_dump_json(),encoding='utf-8')
+            kwargs={'start_new_session':True} if os.name!='nt' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
+            process=await asyncio.create_subprocess_exec(sys.executable,'-m','renderer.studio_worker',operation,str(folder),stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL,**kwargs)
+            try:
+                await asyncio.wait_for(process.wait(),timeout=RENDER_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise HTTPException(504,'渲染超时，请缩短片段或简化画面') from None
+            finally:
+                # Reap before TemporaryDirectory removes browser and encoder files.
+                await terminate_process(process)
+            if process.returncode:
+                error_file=folder/'error.json'
+                if error_file.exists():
+                    error=json.loads(error_file.read_text(encoding='utf-8'))
+                    if error.get('code')=='studio_input':
+                        raise HTTPException(422,{'code':'studio_input','message':str(error.get('message',''))[:500]})
+                raise HTTPException(422,'分段检查失败' if operation=='inspect' else '视频导出失败')
+            if operation=='inspect':
+                result=folder/'result.json'
+                if not result.exists(): raise HTTPException(422,'分段检查失败')
+                return json.loads(result.read_text(encoding='utf-8'))
+            output=folder/'output.mp4'
+            if not output.exists() or output.stat().st_size>MAX_OUTPUT_BYTES: raise HTTPException(413,'视频输出过大')
+            return {'mp4_base64':base64.b64encode(output.read_bytes()).decode(),'metadata':json.loads((folder/'metadata.json').read_text(encoding='utf-8'))}
+    finally:
+        busy=False
+
+
+@app.post('/studio/inspect')
+async def studio_inspect(request:Request):return await execute_studio(request,'inspect')
+
+
+@app.post('/studio/render')
+async def studio_render(request:Request):return await execute_studio(request,'render')
