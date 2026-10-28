@@ -4,6 +4,7 @@ WORKDIR /render
 COPY renderer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && apt-get update && apt-get install -y --no-install-recommends chromium ffmpeg fonts-noto-cjk && rm -rf /var/lib/apt/lists/* && useradd --uid 10002 --no-create-home render
 COPY backend/app/videos /render/app/videos
+COPY backend/app/studio /render/app/studio
 COPY backend/app/presentations/graphic_contract.py /render/app/presentations/graphic_contract.py
 COPY backend/app/presentations/text_layout.py /render/app/presentations/text_layout.py
 COPY renderer /render/renderer
