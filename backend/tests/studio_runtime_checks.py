@@ -28,6 +28,7 @@ KATEX_HELPER_SEGMENT = (FIXTURES / 'katex_helper_segment.js').read_text(encoding
 EFFECTS = (FIXTURES / 'effects_segment.js').read_text(encoding='utf-8')
 EMPHASIS = (FIXTURES / 'emphasis_segment.js').read_text(encoding='utf-8')
 LAYOUT_DEFAULTS = (FIXTURES / 'layout_defaults_segment.js').read_text(encoding='utf-8')
+OVERLAP = (FIXTURES / 'overlap_segment.js').read_text(encoding='utf-8')
 SUBTITLE_TOP = 625  # the program draws subtitles from this y down on a 1280x720 canvas
 API_MD = RUNTIME_DIR / 'API.md'
 
@@ -284,18 +285,48 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(errors, [])
             self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
 
+    async def test_overlapping_emphases_resolve_by_start_time(self):
+        probe = '''(()=>{const s=document.querySelector('.edu-stage');
+            const q=k=>s.querySelector('[data-edu-id='+k+']');
+            return [getComputedStyle(q('word')).fill, getComputedStyle(q('glow')).fill,
+                    getComputedStyle(q('glow')).filter]})()'''
+        times = [1.05, 1.2, 1.4, 1.6, 2.0]
+        orders = (times, times[::-1], [1.4, 2.0, 1.05, 1.6, 1.2], [1.6, 0, 1.2, 3.0, 1.05, 1.4, 2.0])
+        async with studio_page(plain_film(OVERLAP)) as (page, errors):
+            seen = {}
+            for order in orders:
+                for t in order:
+                    await page.evaluate('t=>window.renderFrame(t)', t)
+                    frame = await page.evaluate(probe)
+                    if t in seen:
+                        self.assertEqual(frame, seen[t], (order, t))
+                    seen[t] = frame
+            # Both on: the later one (green, from 1.1 s) wins; afterwards blue is back.
+            self.assertEqual(seen[1.4][0], 'rgb(0, 255, 0)')
+            self.assertEqual(seen[1.4][1], 'rgb(0, 255, 0)')
+            self.assertEqual(seen[2.0][0], 'rgb(0, 0, 255)')
+            self.assertEqual(seen[2.0][1:], ['rgb(0, 0, 0)', 'none'])
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+
     async def test_scene_helper_text_stays_above_subtitles(self):
-        # The API.md example of timeline/mapRoute/scaleCompare, plus their default layouts.
-        blocks = re.findall(r'```js\n(.*?)```', API_MD.read_text(encoding='utf-8'), re.S)
+        # The API.md example of timeline/mapRoute/scaleCompare, their default layouts, and each
+        # helper at the lowest y API.md allows, with descenders in every label.
+        text = API_MD.read_text(encoding='utf-8')
+        blocks = re.findall(r'```js\n(.*?)```', text, re.S)
         example = [b for b in blocks if 'ctx.motion.timeline(' in b]
         self.assertEqual(len(example), 1)
-        film = plain_film(example[0] + '\n' + LAYOUT_DEFAULTS, duration=4.5)
+        limits = {name: int(re.search(rf'- `{name}\(.*?y 不要超过 (\d+)', text).group(1))
+                  for name in ('timeline', 'scaleCompare')}
+        lowest = (f"ctx.motion.timeline([{{time: 'gjpq', label: 'gjpq'}}, '今天'], 0, 1, {{y: {limits['timeline']}}});"
+                  f"ctx.motion.scaleCompare([{{label: 'gjpq', value: 2}}], 0, 1, {{y: {limits['scaleCompare']}, x: 0, w: 300}});")
+        film = plain_film(example[0] + '\n' + LAYOUT_DEFAULTS + '\n' + lowest, duration=4.5)
         async with studio_page(film) as (page, errors):
             await page.evaluate('t=>window.renderFrame(t)', 3.0)
             boxes = await page.evaluate('''(()=>{const s=document.querySelector('.edu-stage');
                 const top=s.getBoundingClientRect().top;
                 return Array.from(s.querySelectorAll('text')).map(t=>[t.textContent,
-                    Math.round(t.getBoundingClientRect().bottom-top)])})()''')
+                    t.getBoundingClientRect().bottom-top])})()''')  # unrounded
             self.assertGreaterEqual(len(boxes), 14)
             self.assertEqual([b for b in boxes if b[1] > SUBTITLE_TOP], [])
             self.assertEqual(errors, [])

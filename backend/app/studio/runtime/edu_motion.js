@@ -115,6 +115,7 @@
   var FONT = '"Noto Sans SC", sans-serif';
   var GRAPHIC = 'path,line,polyline,polygon,rect,circle,ellipse,text';
   var BIG = 999999;
+  var RISE = 0.15;  // every emphasis reaches full strength this long after its `at`
 
   function makeMotion(env) {
     var ctx = env.ctx, tl = env.tl, root = env.root, svg = env.svg;
@@ -211,7 +212,7 @@
       var limit = env.H * 625 / 720;
       Array.prototype.forEach.call(g.querySelectorAll('text'), function (t) {
         var b = t.getBBox();
-        if (b.y + b.height > limit + 0.5) {
+        if (b.y + b.height > limit) {
           env.note(fn + ' 的文字"' + t.textContent + '"进入了底部字幕区（y 不能超过 ' + round(limit) + '），请往上放');
         }
       });
@@ -282,21 +283,80 @@
         return d;
       };
     }
-    // Per-element glow state, so several glows on one element never fight over `filter`.
-    var glows = new Map();
-    function glowOn(el, color) {
-      var entry = glows.get(el);
-      if (!entry) {
-        entry = {original: el.style.filter, layers: []};
-        glows.set(el, entry);
-        ctx.paint(function () {
-          var best = null;
-          entry.layers.forEach(function (g) { if (g.v > 0 && (!best || g.v > best.v)) best = g; });
-          el.style.filter = best ? 'drop-shadow(0 0 ' + round(10 * best.v) + 'px ' + best.color + ')' : entry.original;
-        });
+    // Emphasis composition. Each emphasis tweens only its own proxy {v: 0..1}; after every seek
+    // the painter below composes each emphasised element+property from the base value (what
+    // the segment's own tweens set, read fresh each frame) and the proxies in start order, so
+    // the emphasis that started later is on top. To read the base, the inline value that was
+    // there before composing (what GSAP or the segment last wrote) is put back right before
+    // the segment timeline renders, so GSAP writes over it if a tween is due, and again
+    // before composing, for seeks where the timeline did not render.
+    var emphases = [];
+    var emphasisKeys = new Map();
+    var order = 0;
+    function restoreEmphases() {
+      emphases.forEach(function (e) {
+        if (e.dirty) { e.el.style[e.prop] = e.inline; e.dirty = false; }
+      });
+    }
+    function hookTimeline() {
+      var render = tl.render;
+      tl.render = function () {
+        restoreEmphases();
+        return render.apply(this, arguments);
+      };
+      ctx.paint(composeEmphases);
+    }
+    function parseColor(value, label) {
+      var c = gsap.utils.splitColor(String(value));
+      if (!c || c.length < 3 || c.slice(0, 3).some(function (n) { return !isFinite(n); })) {
+        throw fail(label + ' 不是能识别的颜色：' + value);
       }
-      var layer = {v: 0, color: color};
+      return [c[0], c[1], c[2], c.length > 3 && isFinite(c[3]) ? c[3] : 1];
+    }
+    function mix(a, b, k) {
+      return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k,
+        a[3] + (b[3] - a[3]) * k];
+    }
+    function rgba(c) {
+      return 'rgba(' + Math.round(c[0]) + ', ' + Math.round(c[1]) + ', ' + Math.round(c[2]) + ', ' +
+        round(c[3]) + ')';
+    }
+    function composeEmphases() {
+      restoreEmphases();
+      emphases.forEach(function (e) {
+        var on = e.layers.filter(function (l) { return l.v > 0; });
+        if (!on.length) return;
+        var base = getComputedStyle(e.el)[e.prop], value;
+        if (e.prop === 'filter') {
+          var color = on[0].color, keep = 1;
+          on.forEach(function (l) { color = mix(color, l.color, l.v); keep *= 1 - l.v; });
+          var shadow = 'drop-shadow(0 0 ' + round(10 * (1 - keep)) + 'px ' + rgba(color) + ')';
+          value = base && base !== 'none' ? base + ' ' + shadow : shadow;
+        } else {
+          if (!/^rgba?\(/.test(base)) return;
+          var c = parseColor(base, '颜色');
+          on.forEach(function (l) { c = mix(c, l.color, l.v); });
+          value = rgba(c);
+        }
+        e.inline = e.el.style[e.prop];
+        e.el.style[e.prop] = value;
+        e.dirty = true;
+      });
+    }
+    // A new emphasis layer on el's `prop` (a colour property, or 'filter' for glow).
+    function emphasis(el, prop, color, start) {
+      if (!emphases.length) hookTimeline();
+      var byProp = emphasisKeys.get(el);
+      if (!byProp) { byProp = {}; emphasisKeys.set(el, byProp); }
+      var entry = byProp[prop];
+      if (!entry) {
+        entry = {el: el, prop: prop, inline: el.style[prop], dirty: false, layers: []};
+        byProp[prop] = entry;
+        emphases.push(entry);
+      }
+      var layer = {v: 0, color: parseColor(color, 'highlight 的 color'), at: start, order: order++};
       entry.layers.push(layer);
+      entry.layers.sort(function (a, b) { return a.at - b.at || a.order - b.order; });
       return layer;
     }
     function colorTargets(els) {
@@ -355,19 +415,17 @@
       var end = start + hold;
       if (style === 'underline' || style === 'box') {
         var deco = decoration(els, style === 'box' ? rectShape(8, 8) : underlineShape, color, style === 'box' ? 4 : 5);
-        tl.to(deco.state, {p: 1, duration: Math.min(0.35, Math.max(hold, 0.05)), ease: 'power2.out'}, start);
-        fadeOut(deco.state, {o: 0}, end, 0.2);
+        tl.to(deco.state, {p: 1, duration: RISE, ease: 'power2.out'}, start);
+        fadeOut(deco.state, {o: 0}, Math.max(end, start + RISE), RISE);
         return deco.path;
       }
       var list = colorTargets(els);
       if (!list.length) throw fail('highlight 的目标 ' + target + ' 没有可以变色的文字或图形');
       list.forEach(function (pair) {
-        var to = {};
-        to[pair[1]] = color;
-        pulse(pair[0], to, start, hold, 0.15);
+        pulse(emphasis(pair[0], pair[1], color, start), {v: 1}, start, hold, RISE);
       });
       if (style === 'glow') {
-        els.forEach(function (el) { pulse(glowOn(el, color), {v: 1}, start, hold, 0.15); });
+        els.forEach(function (el) { pulse(emphasis(el, 'filter', color, start), {v: 1}, start, hold, RISE); });
       }
       return els[0];
     };
@@ -395,7 +453,7 @@
         shade.setAttribute('opacity', String(round(state.o * (1 - dim))));
         shade.style.visibility = 'visible';
       });
-      pulse(state, {o: 1}, start, length, 0.3);
+      pulse(state, {o: 1}, start, length, RISE);
       return shade;
     };
 

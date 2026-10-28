@@ -119,6 +119,8 @@ ctx.endState({keep: ['dot']});
 - `at`、`dur` 单位是秒，`at` 通常写成 `ctx.cue('...')`。坐标、尺寸是像素。
 - `target` 可以是元素、元素数组，或选择器（只在 `ctx.root` 里找，找不到时抛错，信息以"第 段id 段："开头）。
 - 有时长的强调（`highlight`、`spotlight`）在 `at + dur` 后恢复成强调开始前一刻的样子（比如本段先把文字变成了蓝色，强调完还是蓝色）；如果恢复会超过本段时长，就保持到本段结束。`dur` 比淡入时间还短时，按淡入时间算。
+- 所有强调（`highlight` 的每种 style 和 `spotlight`）都在 `at` 之后 0.15 秒内达到最强，结束时也用 0.15 秒恢复。
+- 同一元素的强调重叠时，以后开始的为准：几处变色或发光同时作用在一个元素上时，按开始时间先后叠加，后开始的盖在上面，完全亮起后只看得到它；前一个还没结束时后一个结束了，就回到前一个的颜色。底色是本段自己的动画当时给它的颜色。
 - 下划线、框、圈和聚光灯画在 `ctx.root` 里最上层的 `<svg class="edu-fx">` 上：跟着镜头动，盖在公式和角色上面，角色和镜头参数不会改它。它们每一帧按目标当时的位置重画，目标移动时也跟着走。`ctx.$('path')` 这样的宽泛选择器也会选到这些装饰，找元素请用 `data-edu-id`。
 
 ### `tex(latex, {x, y, size=48, color, id}) -> Element`
@@ -128,14 +130,14 @@ const formula = ctx.motion.tex('y=x^2-2x-3', {x: 900, y: 120, size: 44, id: 'for
 ```
 
 ### `highlight(target, at, {dur=0.6, color='#c53030', style='glow'}) -> Element`
-从 `at` 秒起用 0.15 秒变亮，保持到 `at + dur`，再用 0.15 秒恢复。`style`：`'glow'` 变色并发光，`'color'` 只变色，`'underline'` 画下划线，`'box'` 画圆角框。HTML 元素改文字颜色；SVG 图形改填充（没有填充的改描边），`<g>` 会改里面所有图形。每次调用都会被记下，用来检查高亮是否和旁白里的词对上。
+从 `at` 秒起用 0.15 秒变亮（下划线和框用 0.15 秒画完），保持到 `at + dur`，再用 0.15 秒恢复。`style`：`'glow'` 变色并发光，`'color'` 只变色，`'underline'` 画下划线，`'box'` 画圆角框。HTML 元素改文字颜色；SVG 图形改填充（没有填充的改描边），`<g>` 会改里面所有图形。每次调用都会被记下，用来检查高亮是否和旁白里的词对上。
 ```js
 ctx.motion.highlight('[data-edu-id="formula"]', ctx.cue('二次'), {dur: 0.8});
 ctx.motion.highlight('[data-edu-id="formula"]', ctx.cue('抛物线'), {style: 'underline'});
 ```
 
 ### `spotlight(target, at, dur=1, {dim=0.25, pad=16}) -> Element`
-从 `at` 秒起 `dur` 秒，目标以外的画面变暗到原来亮度的 `dim` 倍（0 到 1），淡入淡出各 0.3 秒。`pad` 是亮区比目标多出的像素。
+从 `at` 秒起 `dur` 秒，目标以外的画面变暗到原来亮度的 `dim` 倍（0 到 1），淡入淡出各 0.15 秒。`pad` 是亮区比目标多出的像素。
 ```js
 ctx.motion.spotlight('[data-edu-id="formula"]', ctx.cue('最低点'), 0.5);
 ```
@@ -194,7 +196,7 @@ ctx.motion.drawPath(sketch, 1, 1.2);
 ```
 
 ### 画面手法
-- `timeline(items, at, dur=2, {x=140, y=画布高-175, w=画布宽-280, color, id}) -> Element`：一条从 (x, y) 起、长 `w` 的时间线，用 `dur` 秒从左推到右，推到哪一项那一项就弹出来。每项是字符串或 `{time, label}`，`time` 写在点上方，`label` 写在下方（基线在 y+48 处，所以 y 不要超过 570）。
+- `timeline(items, at, dur=2, {x=140, y=画布高-175, w=画布宽-280, color, id}) -> Element`：一条从 (x, y) 起、长 `w` 的时间线，用 `dur` 秒从左推到右，推到哪一项那一项就弹出来。每项是字符串或 `{time, label}`，`time` 写在点上方，`label` 写在下方（基线在 y+48 处，所以 y 不要超过 565）。
 - `mapRoute(points, at, dur=2, {color='#c53030', width=5, id}) -> Element`：按顺序用 `dur` 秒画出经过 `points` 的路线，一个圆点走在路线最前面，经过的点依次显示。每个点是 `{x, y, label}` 或 `[x, y]`。
 - `scaleCompare(items, at, dur=2, {x=200, y=画布高-160, w=画布宽-400, h=360, shape='bar', unit, id}) -> Element`：按数值大小对比，各项在 `dur` 秒里依次长出来。`y` 是底线，`h` 是最大一项的高度；`shape: 'circle'` 时圆的面积和数值成正比。每项是 `{label, value, color}`，`value` 必须大于 0，`unit` 接在数值后面显示。名称写在底线下方（基线在 y+40 处，所以 y 不要超过 575）。
 ```js
