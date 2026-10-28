@@ -758,6 +758,155 @@
     return motion;
   }
 
+  // ---- three.js: ONE shared WebGL renderer per page ------------------------------------
+  // Chromium keeps at most 16 live WebGL contexts per page and silently drops the oldest, so
+  // segments never own one. ctx.three() hands out a single runtime-owned THREE.WebGLRenderer
+  // whose canvas is in no layer; each segment that asks gets its own 2D <canvas> in its
+  // layer. paint() clears the shared canvas and restores that segment's renderer settings
+  // before the segment's painters run, then copies the shared canvas into the segment's 2D
+  // canvas. Layers are painted one after another, so each keeps its own picture.
+  var RealRenderer = typeof THREE !== 'undefined' ? THREE.WebGLRenderer : null;
+  var shared = null;  // {renderer, canvas, users, closing}
+  var currentThree = null;  // the segment instance whose painters are running
+
+  function refuseRenderer() {
+    var busy = window.__studioBusy;
+    var where = busy && busy.segment ? '第 ' + busy.segment + ' 段：' : '';
+    var message = where + '请用 ctx.three() 获取渲染器，不要自己创建 WebGLRenderer';
+    diag(message, busy && busy.segment ? busy.segment : null);
+    var error = new Error(message);
+    error.studioMessage = message;
+    if (busy && busy.segment) error.segment = busy.segment;
+    return error;
+  }
+
+  if (RealRenderer) {
+    // The bundle's exports are getters; a plain copy lets the constructor be replaced. Code
+    // in the bundle uses its own bindings, so only segment and character code sees this.
+    var guarded = Object.assign({}, THREE);
+    var GuardedRenderer = function WebGLRenderer() { throw refuseRenderer(); };
+    GuardedRenderer.prototype = RealRenderer.prototype;
+    guarded.WebGLRenderer = GuardedRenderer;
+    window.THREE = guarded;
+  }
+
+  // Renderer settings that change the picture. Each segment starts from a fresh renderer's
+  // values, keeps what its build set, and gets them back before every paint, so nothing a
+  // painter or another segment changed carries over to the next frame.
+  var FLAGS = ['autoClear', 'autoClearColor', 'autoClearDepth', 'autoClearStencil', 'sortObjects',
+    'localClippingEnabled', 'toneMapping', 'toneMappingExposure', 'outputColorSpace'];
+  function readSettings(r) {
+    var s = {clearColor: r.getClearColor(new window.THREE.Color()).getHex(), clearAlpha: r.getClearAlpha(),
+      clippingPlanes: r.clippingPlanes.slice(), shadow: r.shadowMap.enabled, shadowType: r.shadowMap.type};
+    FLAGS.forEach(function (key) { s[key] = r[key]; });
+    return s;
+  }
+  function applySettings(r, s, W, H) {
+    FLAGS.forEach(function (key) { if (r[key] !== s[key]) r[key] = s[key]; });
+    r.clippingPlanes = s.clippingPlanes.slice();
+    r.shadowMap.enabled = s.shadow;
+    r.shadowMap.type = s.shadowType;
+    r.setRenderTarget(null);
+    if (r.getPixelRatio() !== 1) r.setPixelRatio(1);
+    var canvas = r.domElement;
+    if (canvas.width !== W || canvas.height !== H) r.setSize(W, H, false);
+    r.setViewport(0, 0, W, H);
+    r.setScissor(0, 0, W, H);
+    r.setScissorTest(false);
+    r.setClearColor(s.clearColor, s.clearAlpha);
+    r.clear(true, true, true);  // a painter that draws nothing leaves an empty picture
+  }
+
+  function sharedRenderer(W, H) {
+    if (shared) return shared;
+    if (!RealRenderer) throw new Error('页面里没有加载 three.js');
+    var canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    var state = {canvas: canvas, users: 0, closing: false};
+    canvas.addEventListener('webglcontextlost', function () {
+      if (!state.closing) diag('3D 渲染上下文丢失', null);
+    });
+    var renderer = new RealRenderer({canvas: canvas, antialias: false, alpha: true,
+      preserveDrawingBuffer: true});
+    renderer.setPixelRatio(1);
+    renderer.setSize(W, H, false);
+    var render = renderer.render;
+    // Remember which scenes each segment draws, so destroy() can free their GPU buffers.
+    renderer.render = function (scene, camera) {
+      if (currentThree && scene) currentThree.scenes.add(scene);
+      return render.call(renderer, scene, camera);
+    };
+    state.renderer = renderer;
+    state.defaults = readSettings(renderer);
+    shared = state;
+    return state;
+  }
+
+  function disposeScene(scene) {
+    function material(m) {
+      Object.keys(m).forEach(function (key) {
+        if (m[key] && m[key].isTexture) m[key].dispose();
+      });
+      m.dispose();
+    }
+    scene.traverse(function (node) {
+      if (node.geometry && node.geometry.dispose) node.geometry.dispose();
+      if (node.material) [].concat(node.material).forEach(material);
+    });
+    [scene.background, scene.environment].forEach(function (t) { if (t && t.isTexture) t.dispose(); });
+  }
+
+  // Per segment instance: created lazily by the first ctx.three() call.
+  function threeFor(W, H, root, svg) {
+    var own = null;  // {canvas, g, settings, scenes}
+    return {
+      get: function () {
+        if (!own) {
+          var s = sharedRenderer(W, H);
+          var canvas = document.createElement('canvas');
+          canvas.width = W;
+          canvas.height = H;
+          canvas.setAttribute('data-edu-three', '');
+          canvas.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px';
+          root.insertBefore(canvas, svg);  // under the segment's SVG labels
+          own = {canvas: canvas, g: canvas.getContext('2d'), settings: s.defaults, scenes: new Set()};
+          s.users += 1;
+          applySettings(s.renderer, own.settings, W, H);
+        }
+        return {renderer: shared.renderer, THREE: window.THREE};
+      },
+      // Right after build: keep what the build set on the renderer.
+      capture: function () { if (own) own.settings = readSettings(shared.renderer); },
+      begin: function () {
+        if (!own) return;
+        applySettings(shared.renderer, own.settings, W, H);
+        currentThree = own;
+      },
+      end: function () {
+        if (!own) return;
+        currentThree = null;
+        own.g.clearRect(0, 0, W, H);
+        own.g.drawImage(shared.canvas, 0, 0, W, H);
+      },
+      release: function () {
+        if (!own) return;
+        own.scenes.forEach(disposeScene);
+        own.canvas.width = 0;  // frees the 2D backing store
+        own.canvas.remove();
+        own = null;
+        if (shared && --shared.users <= 0) {
+          var s = shared;
+          shared = null;
+          s.closing = true;
+          s.renderer.dispose();
+          var lose = s.renderer.getContext().getExtension('WEBGL_lose_context');
+          if (lose) lose.loseContext();
+        }
+      }
+    };
+  }
+
   // ---- one segment instance -----------------------------------------------------------
   function createSegment(meta, host, size) {
     var id = meta.id;
@@ -807,6 +956,7 @@
     var actors = new Map();
     var keep = [];
     var painters = [];
+    var three3d = threeFor(W, H, root, svg);
 
     // Camera: `cam` zooms about the stage centre, `root` pans so (x, y) lands at the centre.
     function cameraVars(target) {
@@ -1023,6 +1173,7 @@
         if (typeof painter !== 'function') throw fail('ctx.paint 需要一个函数');
         painters.push(painter);
       },
+      three: function () { return three3d.get(); },
       __highlights: [],
       __probes: {},
       endState: function (end) {
@@ -1048,7 +1199,14 @@
     }
     function paint() {
       var local = Math.min(Math.max(tl.time(), 0), meta.duration);
-      withBusy(id, 'paint', function () { painters.forEach(function (painter) { painter(local); }); });
+      withBusy(id, 'paint', function () {
+        three3d.begin();
+        try {
+          painters.forEach(function (painter) { painter(local); });
+        } finally {
+          three3d.end();
+        }
+      });
     }
 
     var before = new Set(gsap.globalTimeline.getChildren(false, true, true));
@@ -1060,6 +1218,7 @@
       gsap.set(cam, startCam.zoom);
       var result = build(ctx);
       if (result && typeof result.then === 'function') note('build 必须同步执行，不能返回 Promise');
+      three3d.capture();
       gsap.globalTimeline.getChildren(false, true, true).forEach(function (child) {
         if (!before.has(child) && child !== tl && child.duration() > 0) {
           note('有动画没放进 ctx.tl（直接用了 gsap.to/from 等），它不会随时间播放');
@@ -1085,7 +1244,9 @@
       paint();
     } catch (error) {
       tl.kill();
+      three3d.release();
       layer.remove();
+      if (error && error.studioMessage) throw error;  // already reported in full
       var message = String(error && error.message || error);
       if (message.indexOf(where + '：') === 0) message = message.slice(where.length + 1);
       throw fail('构建失败：' + message);
@@ -1123,7 +1284,7 @@
           actors.forEach(function (a, name) { all.push(name + ':' + a.shapeString()); });
           return hashString(all.join('|'));
         },
-        destroy: function () { tl.kill(); layer.remove(); }
+        destroy: function () { tl.kill(); three3d.release(); layer.remove(); }
       }
     };
     // Checks only: functions a fixture put on ctx.__probes appear on instantiate()'s result.

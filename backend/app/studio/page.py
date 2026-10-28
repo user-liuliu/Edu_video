@@ -78,11 +78,12 @@ async def bounded(page, awaitable, timeout: float = STEP_TIMEOUT):
 
 
 _INLINE_SCRIPT = re.compile(r'<script(?P<attrs>[^>]*)>(?P<body>.*?)</script>', re.IGNORECASE | re.DOTALL)
-_USES_THREE = re.compile(r'(?<![\w$.])THREE\b')
+# The THREE identifier (window.THREE too) or the runtime's shared renderer, ctx.three().
+_USES_THREE = re.compile(r'(?<![\w$])THREE(?![\w$])|\bctx\s*\.\s*three\s*\(')
 
 
 def film_needs_webgl(html: str) -> bool:
-    """True when segment or character code uses three.js (``THREE``).
+    """True when segment or character code uses three.js (``THREE`` or ``ctx.three()``).
 
     Only inline code scripts are searched: the vendored three.js bundle is loaded by every
     film through ``src``, and the film JSON block holds narration text, not code.

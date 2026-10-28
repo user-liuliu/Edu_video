@@ -219,3 +219,6 @@ def test_film_needs_webgl_only_for_code_that_uses_three():
     assert film_needs_webgl(build_film_html([seg('a', 2, code='const r = new THREE.WebGLRenderer();')], []))
     assert film_needs_webgl(build_film_html([seg('a', 2)], [], characters_code='const {Mesh} = THREE;'))
     assert not film_needs_webgl(build_film_html([seg('a', 2, code='const MY_THREE = 3;')], []))
+    assert film_needs_webgl(build_film_html([seg('a', 2, code='const {renderer} = ctx.three();')], []))
+    assert film_needs_webgl(build_film_html([seg('a', 2)], [], characters_code='const T = window.THREE;'))
+    assert not film_needs_webgl(build_film_html([seg('a', 2, code='const THREE_D = 1, x = ctx.threeish;')], []))

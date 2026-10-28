@@ -1,16 +1,12 @@
-// three.js on a 1280x720 WebGL canvas: a cube and a rotating function surface
-// z = 0.6 sin(1.5x) cos(1.5y), MeshStandardMaterial lit by a directional light. Every frame is
-// drawn only by the ctx.paint painter from tweened plain objects (callbacks never draw).
+// three.js through the runtime's shared renderer (ctx.three()): a cube and a rotating function
+// surface z = 0.6 sin(1.5x) cos(1.5y), MeshStandardMaterial lit by a directional light. Every
+// frame is drawn only by the ctx.paint painter from tweened plain objects. Segments keep the
+// renderer's transparent clear (the stage colour shows) and a blue cube, except segment "b",
+// which clears to light blue and has a red cube, so two segments' pictures can be told apart.
+const {renderer} = ctx.three();
 const W = ctx.width, H = ctx.height;
-const canvas = document.createElement('canvas');
-canvas.setAttribute('data-edu-id', 'three');
-canvas.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px';
-ctx.root.appendChild(canvas);
-// antialias off: MSAA resolve is one more place a software rasterizer could differ per run.
-const renderer = new THREE.WebGLRenderer({canvas: canvas, antialias: false, preserveDrawingBuffer: true});
-renderer.setPixelRatio(1);
-renderer.setSize(W, H, false);
-renderer.setClearColor(0xfdfaf3, 1);
+const own = ctx.id === 'b';
+if (own) renderer.setClearColor(0xbee3f8, 1);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 100);
@@ -22,7 +18,7 @@ sun.position.set(4, 6, 5);
 scene.add(sun);
 
 const cube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6),
-  new THREE.MeshStandardMaterial({color: 0x2b6cb0, roughness: 0.5, metalness: 0.1}));
+  new THREE.MeshStandardMaterial({color: own ? 0xc53030 : 0x2b6cb0, roughness: 0.5, metalness: 0.1}));
 cube.position.set(-2.6, 0, 0);
 scene.add(cube);
 

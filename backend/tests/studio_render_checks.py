@@ -16,6 +16,54 @@ from app.studio.runtime.assets import runtime_digest
 from studio_runtime_checks import CHARACTERS, CORE, MUTATING_PART, NARRATION, WORDS, core_film, two_segment_film
 
 THREE_SEGMENT = (Path(__file__).with_name('fixtures') / 'studio' / 'three_segment.js').read_text(encoding='utf-8')
+STAGE_RGB = (0xfd, 0xfa, 0xf3)  # STYLE's stage background
+OWN_RENDERER = 'const r = new THREE.WebGLRenderer();'
+LATE_OWN_RENDERER = "ctx.paint(function (t) { if (t > 0.5) new THREE.WebGLRenderer(); });"
+OWN_RENDERER_MESSAGE = '请用 ctx.three() 获取渲染器，不要自己创建 WebGLRenderer'
+
+
+def three_film(ids, duration=1.0, codes=None, seam=None):
+    """Segments that each say a short line, so every frame carries a caption; by default all
+    are the three.js fixture. ``seam`` is the Seam between neighbours (default: cut)."""
+    from studio_runtime_checks import _ev
+    from app.studio.words import align_words
+    codes = codes or {}
+    segments = [Segment(id=sid, code=codes.get(sid, THREE_SEGMENT), duration=duration,
+                        words=align_words('立方体。', [_ev(0.05, duration * 0.4, '立方'), _ev(duration * 0.5, duration * 0.4, '体')]),
+                        narration='立方体。', start_state=StageState(), end_state=StageState()) for sid in ids]
+    seams = [seam or Seam(kind='continue', duration=0) for _ in ids[1:]]
+    return build_film_html(segments, seams, style_css=STYLE)
+
+
+def rgb(png):
+    import numpy as np
+    from PIL import Image
+    return np.asarray(Image.open(io.BytesIO(png)).convert('RGB')).astype('int16')
+
+
+def drawn_share(pixels):
+    """Share of pixels that are not the stage background (3D content plus the caption)."""
+    import numpy as np
+    return float((np.abs(pixels - np.array(STAGE_RGB, dtype='int16')).max(axis=2) > 24).mean())
+
+
+def mp4_frame(path, t):
+    """One decoded frame of the mp4 at ``t`` seconds, at the review size (as inspect frames)."""
+    import subprocess
+    from PIL import Image
+    from app.studio.render_contract import REVIEW_SIZE
+    from app.videos.export import executable
+    png = subprocess.run([executable('ffmpeg'), '-v', 'error', '-ss', f'{t:.3f}', '-i', str(path), '-frames:v', '1',
+                          '-f', 'image2pipe', '-vcodec', 'png', '-'], check=True, capture_output=True).stdout
+    out = io.BytesIO()
+    Image.open(io.BytesIO(png)).convert('RGB').resize(REVIEW_SIZE, Image.LANCZOS).save(out, format='PNG')
+    return out.getvalue()
+
+
+async def caption_baseline(blank, times):
+    """Drawn share at ``times`` of ``blank``, the same film with empty segments: the caption alone."""
+    result = await inspect_film(req(blank, frames=times, checks=[]))
+    return {f.t: drawn_share(rgb(base64.b64decode(f.png_base64))) for f in result.frames}
 ALL_CHECKS = ['determinism', 'bounds', 'overlap', 'highlights', 'geometry', 'states']
 STYLE = '.edu-stage{background:#fdfaf3}'
 
@@ -294,25 +342,23 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(runtime.message.startswith('第 a 段：绘制超时，可能有死循环'), runtime)
         self.assertAlmostEqual(runtime.t, 1.5, 3)
 
-    # ---- 3D feasibility (Task 9): three.js on SwiftShader, no GPU --------------------------
+    # ---- 3D (Task 9): three.js on SwiftShader, no GPU, one shared renderer -----------------
     async def test_three_segment_renders_deterministically_without_gpu(self):
-        import numpy as np
-        from PIL import Image
         from app.studio.inspect import _same_png
         from app.studio.page import film_needs_webgl, studio_page
 
         html = one_segment(THREE_SEGMENT)
         self.assertTrue(film_needs_webgl(html))
-
-        def pixels(png):
-            return np.asarray(Image.open(io.BytesIO(png)).convert('RGB')).astype('int16')
+        baseline = (await caption_baseline(one_segment(''), [1.5]))[1.5]
 
         async with studio_page(html, webgl=film_needs_webgl(html)) as (page, errors):
             renderer = await page.evaluate('''() => {
               const gl = document.createElement('canvas').getContext('webgl2');
               if (!gl) return null;
               const info = gl.getExtension('WEBGL_debug_renderer_info');
-              return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+              const name = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+              gl.getExtension('WEBGL_lose_context').loseContext();  // the probe context only
+              return name;
             }''')
             print(f'\n[3d] WebGL renderer: {renderer}')
 
@@ -320,15 +366,14 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
                 await page.evaluate('t => window.renderFrame(t)', t)
                 return await page.screenshot(type='png')
 
-            # 1. no errors, not blank: much of the frame is not the background, and it moves.
+            # 1. no errors, not blank: well above the caption-only frame, and it moves.
             first, middle = await shot(0.0), await shot(1.5)
-            background = np.array([0xfd, 0xfa, 0xf3], dtype='int16')
-            drawn = float((np.abs(pixels(middle) - background).max(axis=2) > 24).mean())
-            moved = float(np.abs(pixels(first) - pixels(middle)).mean())
-            print(f'[3d] drawn share {drawn:.3f}, mean change 0 s -> 1.5 s {moved:.2f}')
+            drawn = drawn_share(rgb(middle))
+            moved = float(abs(rgb(first) - rgb(middle)).mean())
+            print(f'[3d] drawn share {drawn:.3f} (caption only {baseline:.3f}), mean change 0 s -> 1.5 s {moved:.2f}')
             self.assertEqual(errors, [])
             self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
-            self.assertGreater(drawn, 0.05)
+            self.assertGreaterEqual(drawn, 3 * baseline)
             self.assertGreater(moved, 1.0)
 
             # 2. same t, same pixels: forward, then reversed after seeking elsewhere, then again.
@@ -344,7 +389,7 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
             exact += forward[1.5] == repeat
             print(f'[3d] bit-identical revisits: {exact}/{len(times) + 1}')
 
-            # 3. frame cost at 1280x720: renderFrame + PNG screenshot, as the exporter does.
+            # 3. frame cost at 1280x720: renderFrame (paint + copy) + PNG screenshot, as exported.
             costs = []
             for k in range(60):
                 started = time.monotonic()
@@ -355,20 +400,114 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
             print(f'[3d] per frame: mean {mean:.3f} s, p95 {p95:.3f} s, max {costs[-1]:.3f} s')
             self.assertLessEqual(mean, 0.5)
 
-        # 4. the 3 s segment exports to mp4.
+        # 4. the 3 s segment exports to mp4, and the video shows the 3D picture.
         with tempfile.TemporaryDirectory() as tmp:
             started = time.monotonic()
             meta = await render_film(render_req(html), Path(tmp) / 'three.mp4')
             print(f'[3d] mp4 export of the 3 s segment: {time.monotonic() - started:.2f} s')
             self.assertAlmostEqual(meta['duration'], 3.0, delta=1 / 30)
             self.assertEqual((meta['width'], meta['height']), (1280, 720))
-            self.assertTrue((Path(tmp) / 'three.mp4').stat().st_size > 1000)
+            frame = drawn_share(rgb(mp4_frame(Path(tmp) / 'three.mp4', 1.5)))
+            print(f'[3d] mp4 frame at 1.5 s: drawn share {frame:.3f}')
+            self.assertGreaterEqual(frame, 3 * baseline)
 
     async def test_three_segment_has_no_inspect_issues(self):
         started = time.monotonic()
         result = await inspect_film(req(one_segment(THREE_SEGMENT), frames=[1.5]))
         print(f'\n[3d] inspect with all checks: {time.monotonic() - started:.2f} s, issues {result.issues}')
         self.assertEqual(result.issues, [])
+
+    async def test_twenty_3d_segments_share_one_context(self):
+        # More 3D segments than Chromium's 16 live WebGL contexts per page: with a context per
+        # segment the first ones went blank in both inspect and export, without any error.
+        ids = [f's{i}' for i in range(20)]
+        html = three_film(ids)
+        times = [0.5, 9.5, 19.5]  # in s0, s9 and s19
+        baseline = await caption_baseline(three_film(ids, codes={sid: '' for sid in ids}), times)
+        started = time.monotonic()
+        result = await inspect_film(req(html, frames=times))
+        print(f'\n[3d] inspect of 20 x 1 s 3D segments: {time.monotonic() - started:.1f} s')
+        self.assertEqual(result.issues, [])
+        for frame in result.frames:
+            share = drawn_share(rgb(base64.b64decode(frame.png_base64)))
+            print(f'[3d] inspect frame {frame.t} s: drawn {share:.3f}, caption only {baseline[frame.t]:.3f}')
+            self.assertGreaterEqual(share, 3 * baseline[frame.t], frame.t)
+        with tempfile.TemporaryDirectory() as tmp:
+            started = time.monotonic()
+            meta = await render_film(render_req(html), Path(tmp) / 'twenty.mp4')
+            print(f'[3d] mp4 export of 20 x 1 s 3D segments: {time.monotonic() - started:.1f} s')
+            self.assertAlmostEqual(meta['duration'], 20.0, delta=1 / 30)
+            for t in (times[0], times[-1]):
+                share = drawn_share(rgb(mp4_frame(Path(tmp) / 'twenty.mp4', t)))
+                print(f'[3d] mp4 frame {t} s: drawn {share:.3f}')
+                self.assertGreaterEqual(share, 3 * baseline[t], t)
+
+    async def test_wipe_between_two_3d_segments_shows_both_pictures(self):
+        import numpy as np
+        from app.studio.inspect import _same_png
+        from app.studio.page import studio_page
+        # a: stage colour, blue cube; b: light-blue clear, red cube (cubes on the left, gold
+        # surfaces on the right). Wipe 1 s from 2 s to 3 s: at 2.5 s b fills the left half and
+        # a the right half.
+        html = three_film(['a', 'b'], duration=2.0, seam=Seam(kind='transition', transition='wipe', duration=1.0))
+        async with studio_page(html, webgl=True) as (page, errors):
+            async def shot(t):
+                await page.evaluate('t => window.renderFrame(t)', t)
+                return await page.screenshot(type='png')
+            forward = [await shot(t) for t in (0.5, 2.5, 4.5)]
+            backward = await shot(4.5), await shot(2.5)
+            self.assertTrue(_same_png(forward[1], backward[1]))
+            self.assertTrue(_same_png(forward[2], backward[0]))
+            p = rgb(forward[1])[:600]
+            r, g, b = p[..., 0], p[..., 1], p[..., 2]
+            light_blue = (np.abs(p - np.array([0xbe, 0xe3, 0xf8])).max(axis=2) <= 12)
+            red = (r - g > 40) & (np.abs(g - b) < 30)
+            gold = (g - b > 40) & (r > g)
+            stage = (np.abs(p - np.array(STAGE_RGB)).max(axis=2) <= 12)
+            left, right = slice(0, 600), slice(680, 1280)
+            share = lambda mask, cols: float(mask[:, cols].mean())  # noqa: E731
+            print(f'\n[3d] wipe at 2.5 s: left light-blue {share(light_blue, left):.2f} red {share(red, left):.3f} '
+                  f'stage {share(stage, left):.3f}; right stage {share(stage, right):.2f} '
+                  f'gold {share(gold, right):.3f} light-blue {share(light_blue, right):.3f}')
+            self.assertGreater(share(light_blue, left), 0.3)  # b's own clear colour, not a's
+            self.assertGreater(share(red, left), 0.005)       # b's cube
+            self.assertLess(share(stage, left), 0.001)
+            self.assertEqual(share(light_blue, right), 0)     # a keeps its own (transparent) clear
+            self.assertGreater(share(stage, right), 0.3)
+            self.assertGreater(share(gold, right), 0.05)      # a's surface
+            self.assertEqual(errors, [])
+            self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+
+    async def test_segment_creating_its_own_renderer_is_isolated(self):
+        from app.studio.page import studio_page
+        codes = {'a': OWN_RENDERER, 'c': THREE_SEGMENT + '\n' + LATE_OWN_RENDERER}
+        html = three_film(['a', 'b', 'c'], duration=1.0, codes=codes)
+        async with studio_page(html, webgl=True) as (page, errors):
+            for t in (0.5, 1.5, 2.2, 2.7):
+                await page.evaluate('t => window.renderFrame(t)', t)
+            diagnostics = await page.evaluate('window.studioDiagnostics')
+            self.assertEqual(sorted(diagnostics, key=lambda d: d['segment']), [
+                {'segment': 'a', 'message': f'第 a 段：{OWN_RENDERER_MESSAGE}'},
+                {'segment': 'c', 'message': f'第 c 段：{OWN_RENDERER_MESSAGE}'}])
+            self.assertEqual(errors, [])
+            await page.evaluate('t => window.renderFrame(t)', 1.5)  # b is unaffected
+            self.assertGreater(drawn_share(rgb(await page.screenshot(type='png'))), 0.5)  # light-blue clear
+
+    async def test_lost_shared_context_is_reported(self):
+        from app.studio.page import studio_page
+        async with studio_page(one_segment(THREE_SEGMENT), webgl=True) as (page, errors):
+            # Sixteen more contexts make Chromium drop the oldest one: the runtime's.
+            await page.evaluate('''() => { window.__extra = [];
+              for (let i = 0; i < 16; i++) window.__extra.push(document.createElement('canvas').getContext('webgl2')); }''')
+            import asyncio
+            diagnostics = []
+            for _ in range(50):  # the event is asynchronous; the page CSP rules out wait_for_function
+                await asyncio.sleep(0.1)
+                diagnostics = await page.evaluate('window.studioDiagnostics')
+                if diagnostics:
+                    break
+            self.assertEqual(diagnostics, [{'segment': None, 'message': '3D 渲染上下文丢失'}])
+            self.assertEqual(errors, [])
 
     async def test_offstage_label_on_canvas_in_subtitles_is_reported(self):
         result = await inspect_film(req(seg_with_code(PARKED_LOW), checks=['bounds']))

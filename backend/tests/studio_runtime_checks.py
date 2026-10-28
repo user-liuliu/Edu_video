@@ -6,7 +6,7 @@ import unittest
 
 from app.studio.contract import ActorState, Camera, Seam, Segment, StageState
 from app.studio.film import build_film_html
-from app.studio.page import studio_page
+from app.studio.page import film_needs_webgl, studio_page
 from app.studio.runtime.assets import RUNTIME_DIR
 from app.studio.words import Word, align_words
 from app.videos.direct_render import same_pixels
@@ -254,7 +254,9 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
         characters = '\n'.join(b for b in blocks if 'defineCharacter' in b)
         body = '\n'.join(b for b in blocks if 'defineCharacter' not in b)
         self.assertTrue(characters and body)
-        async with studio_page(plain_film(body, characters=characters, duration=4.5)) as (page, errors):
+        html = plain_film(body, characters=characters, duration=4.5)
+        self.assertTrue(film_needs_webgl(html))  # the ctx.three() example
+        async with studio_page(html, webgl=True) as (page, errors):
             await page.evaluate('t=>window.renderFrame(t)', 4.0)
             self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
             self.assertEqual(errors, [])

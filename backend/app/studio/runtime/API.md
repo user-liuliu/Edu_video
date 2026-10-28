@@ -10,6 +10,7 @@
 - 运行时定位时间线时不触发任何回调。所以 `tl.call`、`onStart`、`onComplete`、`onUpdate` 里不要改任何看得见的东西，改了也不会显示。
 - 瞬间的变化，比如换文字、显示或隐藏，用 `ctx.tl.set`，例如 `ctx.tl.set(el, {textContent: 'B'}, 2)`。连续的变化用 `ctx.tl.to` 去补间元素属性或普通对象。
 - Canvas 和 three.js 只能在 `ctx.paint` 里画，每次都把整块画布重画一遍，画的时候读被补间的普通对象。
+- three.js 的渲染器用 `ctx.three()` 取，不要自己 `new THREE.WebGLRenderer`（会记一条诊断，本段不再显示）。
 - 画布是 1280×720。所有文字都要放在 y=625 以上：底部（y 从 625 到 720）是程序显示字幕的地方。`timeline`、`mapRoute`、`scaleCompare` 的文字进入这里时会记一条诊断。
 - 文字超出画布按镜头移动前的位置检查。故意放在画布外的文字必须给它（或它的外层组）加 `data-edu-offstage`：包括镜头平移或推移才带进画面的文字（比如长时间线远端的标签），以及之后再移进来或移出去的文字。这个标记只免去"超出画布"这一项：文字出现在画面上时，仍然不能压进字幕区，也不能和别的文字重叠。
 - 元素用 `data-edu-id="标签"` 命名，高亮和 `endState` 都按这个标签找元素。SVG 里的 `id`（渐变、滤镜、clipPath）要带上段 id 前缀，避免和别的段重名。
@@ -79,6 +80,30 @@ ctx.paint(function (t) {
   g.clearRect(0, 0, 400, 200);
   g.fillStyle = '#2b6cb0';
   g.fillRect(0, 80, bar.w, 40);
+});
+```
+
+`ctx.three() -> {renderer, THREE}`：取 three.js 渲染器。整个影片只有一个渲染器，由运行时创建（1280×720、像素比 1、背景透明），所有段共用；本段第一次调用时，运行时在 `ctx.root` 里、`ctx.svg` 下面放一块铺满画布的画面，本段的 painter 画完后，运行时把渲染结果拷到这块画面上。所以：
+- 不要自己创建 `WebGLRenderer`，也不要把 `renderer.domElement` 放进页面。
+- 在 painter 里调用 `renderer.render(scene, camera)`。每次绘制前，运行时把渲染器清空，并恢复成本段构建结束时的设置（比如在构建时调用的 `setClearColor`）；painter 里改的设置只对这一帧有效。
+- 不要改渲染器的大小和像素比，不要用 `setAnimationLoop`。
+```js
+const {renderer} = ctx.three();
+const scene = new THREE.Scene();
+const cam3 = new THREE.PerspectiveCamera(40, ctx.width / ctx.height, 0.1, 100);
+cam3.position.set(0, 2, 8);
+cam3.lookAt(0, 0, 0);
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(3, 5, 4);
+scene.add(sun);
+const box3 = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({color: 0x2b6cb0}));
+scene.add(box3);
+const turn = {angle: 0};
+ctx.tl.to(turn, {angle: Math.PI, duration: 2, ease: 'none'}, 0.5);
+ctx.paint(function () {
+  box3.rotation.y = turn.angle;
+  renderer.render(scene, cam3);
 });
 ```
 

@@ -223,7 +223,8 @@
     try {
       item.instance.paint();
     } catch (error) {
-      isolate(item, '第 ' + item.id + ' 段：绘制失败：' + (error && error.message || error));
+      isolate(item, error && error.studioMessage ? error.studioMessage
+        : '第 ' + item.id + ' 段：绘制失败：' + (error && error.message || error));
       return false;
     }
     return true;
