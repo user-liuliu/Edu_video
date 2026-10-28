@@ -17,6 +17,39 @@ from studio_runtime_checks import CHARACTERS, CORE, MUTATING_PART, NARRATION, WO
 
 THREE_SEGMENT = (Path(__file__).with_name('fixtures') / 'studio' / 'three_segment.js').read_text(encoding='utf-8')
 STAGE_RGB = (0xfd, 0xfa, 0xf3)  # STYLE's stage background
+# A shadow-casting scene whose cube turns: a stale shadow map shows as a misplaced shadow.
+SHADOW_SCENE = '''const {renderer} = ctx.three();
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(40, ctx.width / ctx.height, 0.1, 100);
+cam.position.set(0, 5, 9); cam.lookAt(0, 0, 0);
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+const sun = new THREE.DirectionalLight(0xffffff, 2.5);
+sun.position.set(3, 8, 4); sun.castShadow = true;
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), new THREE.MeshStandardMaterial({color: 0xeeeeee}));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+scene.add(floor);
+const cube = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({color: 0x2b6cb0}));
+cube.position.y = 1.2; cube.castShadow = true;
+scene.add(cube);
+const s = {rot: 0};
+ctx.tl.to(s, {rot: Math.PI, duration: ctx.duration, ease: 'none'}, 0);
+ctx.paint(function () {
+  renderer.shadowMap.enabled = true;
+  cube.rotation.y = s.rot; cube.position.x = 2 * Math.sin(s.rot);
+  renderer.render(scene, cam);
+});'''
+# Leaves the shared renderer in a non-default state, at build and after its own render.
+STATE_MESSER = '''function mess() {
+  renderer.shadowMap.autoUpdate = false;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.setClearColor(0xff0000, 1);
+  renderer.setScissor(0, 0, 100, 100);
+  renderer.setScissorTest(true);
+  renderer.getContext().colorMask(false, false, false, false);
+}
+mess();
+ctx.paint(function () { mess(); });'''
 OWN_RENDERER = 'const r = new THREE.WebGLRenderer();'
 LATE_OWN_RENDERER = "ctx.paint(function (t) { if (t > 0.5) new THREE.WebGLRenderer(); });"
 OWN_RENDERER_MESSAGE = '请用 ctx.three() 获取渲染器，不要自己创建 WebGLRenderer'
@@ -477,6 +510,44 @@ class StudioRenderChecks(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(share(gold, right), 0.05)      # a's surface
             self.assertEqual(errors, [])
             self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+
+    async def test_renderer_state_never_carries_over_between_segments(self):
+        from app.studio.page import studio_page
+        # a changes renderer state at build and in its painter (also raw GL); b and c use the
+        # defaults and a shadow-casting light. Their frames must equal b and c in a film
+        # without a, whichever frames were drawn before.
+        codes = {'a': SHADOW_SCENE + '\n' + STATE_MESSER, 'b': SHADOW_SCENE, 'c': SHADOW_SCENE}
+        polluted, clean = three_film(['a', 'b', 'c'], codes=codes), three_film(['b', 'c'], codes=codes)
+        local = [('b', 0.25), ('b', 0.75), ('c', 0.25), ('c', 0.75)]
+
+        async def shots(html, offset, order):
+            async with studio_page(html, webgl=True) as (page, errors):
+                out = []
+                for t in order:
+                    await page.evaluate('t => window.renderFrame(t)', t)
+                    out.append((round(t - offset, 6), rgb(await page.screenshot(type='png'))))
+                self.assertEqual(errors, [])
+                self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+                return out
+
+        def at(segment, t, first):  # film time of a local time in b or c
+            return round(first + {'b': 0, 'c': 1}[segment] + t, 6)
+        wanted = [at(s, t, 0) for s, t in local]
+        reference = dict(await shots(clean, 0, wanted))
+        # a's painter runs (and changes state) before each of b's and c's frames, forward and back.
+        order = [x for t in wanted for x in (0.6, t + 1)] + [x for t in reversed(wanted) for x in (0.9, t + 1)]
+        worst = {}
+        for key, pixels in await shots(polluted, 1, order):
+            if key not in reference:
+                continue  # a's own frames
+            delta = abs(pixels - reference[key]).max(axis=2)
+            worst[key] = max(worst.get(key, (0, 0.0)), (int(delta.max()), float((delta > 0).mean())))
+        print()
+        for (segment, t), key in zip(local, wanted):
+            print(f'[3d] {segment} @ {t} s after a (forward and backward): max diff {worst[key][0]}, '
+                  f'{worst[key][1]:.4f} of pixels differ')
+        self.assertEqual(len(worst), len(wanted))
+        self.assertEqual({k: v[0] for k, v in worst.items()}, {k: 0 for k in wanted})
 
     async def test_segment_creating_its_own_renderer_is_isolated(self):
         from app.studio.page import studio_page

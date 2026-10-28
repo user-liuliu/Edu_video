@@ -6,7 +6,6 @@
 const {renderer} = ctx.three();
 const W = ctx.width, H = ctx.height;
 const own = ctx.id === 'b';
-if (own) renderer.setClearColor(0xbee3f8, 1);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 100);
@@ -39,6 +38,7 @@ const s = {rot: 0, spin: 0};
 ctx.tl.to(s, {rot: Math.PI * 2, duration: ctx.duration, ease: 'none'}, 0);
 ctx.tl.to(s, {spin: Math.PI, duration: ctx.duration, ease: 'power1.inOut'}, 0);
 ctx.paint(function () {
+  if (own) renderer.setClearColor(0xbee3f8, 1);  // renderer settings last one painter call
   surface.rotation.z = s.rot;
   cube.rotation.set(s.spin * 0.5, s.spin, 0);
   renderer.render(scene, camera);

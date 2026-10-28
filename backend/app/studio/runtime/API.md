@@ -85,8 +85,10 @@ ctx.paint(function (t) {
 
 `ctx.three() -> {renderer, THREE}`：取 three.js 渲染器。整个影片只有一个渲染器，由运行时创建（1280×720、像素比 1、背景透明），所有段共用；本段第一次调用时，运行时在 `ctx.root` 里、`ctx.svg` 下面放一块铺满画布的画面，本段的 painter 画完后，运行时把渲染结果拷到这块画面上。所以：
 - 不要自己创建 `WebGLRenderer`，也不要把 `renderer.domElement` 放进页面。
-- 在 painter 里调用 `renderer.render(scene, camera)`。每次绘制前，运行时把渲染器清空，并恢复成本段构建结束时的设置（比如在构建时调用的 `setClearColor`）；painter 里改的设置只对这一帧有效。
-- 不要改渲染器的大小和像素比，不要用 `setAnimationLoop`。
+- 在 painter 里调用 `renderer.render(scene, camera)`。
+- 每段绘制前，运行时都把渲染器重置成默认值并清空画面。重置的是：大小和像素比、`setViewport`、`setScissor` 和 `setScissorTest`、`setClearColor` 和清屏透明度、`autoClear`、`autoClearColor`、`autoClearDepth`、`autoClearStencil`、`toneMapping`、`toneMappingExposure`、`outputColorSpace`、`sortObjects`、`localClippingEnabled`、`clippingPlanes`、`transmissionResolutionScale`、排序函数（`setOpaqueSort`、`setTransparentSort`），以及 `shadowMap.enabled`、`shadowMap.type`、`shadowMap.autoUpdate`；阴影每一帧都重新计算。
+- 要改这些设置，就在本段的 painter 里每一帧都改一遍，比如在 `renderer.render` 之前调用 `renderer.setClearColor(...)` 或写 `renderer.shadowMap.enabled = true`。改动不会带到别的段，也不会带到下一帧；在构建时改的也不会保留。
+- 不要在两帧之间保留 GL 状态，不要对 `renderer.getContext()` 直接调用 WebGL 函数。不要用 `setAnimationLoop`。
 ```js
 const {renderer} = ctx.three();
 const scene = new THREE.Scene();

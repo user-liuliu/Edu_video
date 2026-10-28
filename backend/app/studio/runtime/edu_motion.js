@@ -762,9 +762,8 @@
   // Chromium keeps at most 16 live WebGL contexts per page and silently drops the oldest, so
   // segments never own one. ctx.three() hands out a single runtime-owned THREE.WebGLRenderer
   // whose canvas is in no layer; each segment that asks gets its own 2D <canvas> in its
-  // layer. paint() clears the shared canvas and restores that segment's renderer settings
-  // before the segment's painters run, then copies the shared canvas into the segment's 2D
-  // canvas. Layers are painted one after another, so each keeps its own picture.
+  // layer. paint() resets the shared renderer to its baseline (below) and clears it before
+  // the segment's painters run, then copies the shared canvas into the segment's 2D canvas. Layers are painted one after another, so each keeps its own picture.
   var RealRenderer = typeof THREE !== 'undefined' ? THREE.WebGLRenderer : null;
   var shared = null;  // {renderer, canvas, users, closing}
   var currentThree = null;  // the segment instance whose painters are running
@@ -790,30 +789,61 @@
     window.THREE = guarded;
   }
 
-  // Renderer settings that change the picture. Each segment starts from a fresh renderer's
-  // values, keeps what its build set, and gets them back before every paint, so nothing a
-  // painter or another segment changed carries over to the next frame.
-  var FLAGS = ['autoClear', 'autoClearColor', 'autoClearDepth', 'autoClearStencil', 'sortObjects',
-    'localClippingEnabled', 'toneMapping', 'toneMappingExposure', 'outputColorSpace'];
-  function readSettings(r) {
-    var s = {clearColor: r.getClearColor(new window.THREE.Color()).getHex(), clearAlpha: r.getClearAlpha(),
-      clippingPlanes: r.clippingPlanes.slice(), shadow: r.shadowMap.enabled, shadowType: r.shadowMap.type};
-    FLAGS.forEach(function (key) { s[key] = r[key]; });
-    return s;
+  // The shared renderer's baseline. Before EACH segment's painters run, the runtime calls
+  // renderer.resetState() (three's GL state cache and the WebGL state itself: colour mask,
+  // blending, depth, scissor, bound buffers) and setRenderTarget(null), then writes back every
+  // property in BASELINE as it was read right after the renderer was created, and sets
+  // shadowMap.needsUpdate so shadows are recomputed every frame. A segment may change these
+  // in its own painter, every frame; nothing carries over to another segment or frame.
+  // Entries: [name, read(renderer), write(renderer, value)]; one list drives both.
+  function prop(owner, key) {
+    return [key, function (r) { return owner(r)[key]; },
+      function (r, v) { if (owner(r)[key] !== v) owner(r)[key] = v; }];
   }
-  function applySettings(r, s, W, H) {
-    FLAGS.forEach(function (key) { if (r[key] !== s[key]) r[key] = s[key]; });
-    r.clippingPlanes = s.clippingPlanes.slice();
-    r.shadowMap.enabled = s.shadow;
-    r.shadowMap.type = s.shadowType;
+  function self(r) { return r; }
+  function shadows(r) { return r.shadowMap; }
+  function vec4(getter, setter) {
+    return [getter, function (r) { return r[getter](new window.THREE.Vector4()).toArray(); },
+      function (r, v) { r[setter](v[0], v[1], v[2], v[3]); }];
+  }
+  var BASELINE = [
+    ['pixelRatio', function (r) { return r.getPixelRatio(); },
+      function (r, v) { if (r.getPixelRatio() !== v) r.setPixelRatio(v); }],
+    ['size', function (r) {
+      var s = r.getSize(new window.THREE.Vector2());
+      return [s.x, s.y, r.domElement.width, r.domElement.height];
+    }, function (r, v) {
+      var s = r.getSize(new window.THREE.Vector2());
+      if (s.x !== v[0] || s.y !== v[1] || r.domElement.width !== v[2] || r.domElement.height !== v[3]) {
+        r.setSize(v[0], v[1], false);
+      }
+    }],
+    vec4('getViewport', 'setViewport'),
+    vec4('getScissor', 'setScissor'),
+    ['scissorTest', function (r) { return r.getScissorTest(); }, function (r, v) { r.setScissorTest(v); }],
+    ['clearColor', function (r) { return {color: r.getClearColor(new window.THREE.Color()), alpha: r.getClearAlpha()}; },
+      function (r, v) { r.setClearColor(v.color, v.alpha); }],
+    prop(self, 'autoClear'), prop(self, 'autoClearColor'), prop(self, 'autoClearDepth'),
+    prop(self, 'autoClearStencil'), prop(self, 'toneMapping'), prop(self, 'toneMappingExposure'),
+    prop(self, 'outputColorSpace'), prop(self, 'sortObjects'), prop(self, 'localClippingEnabled'),
+    prop(self, 'transmissionResolutionScale'),
+    ['clippingPlanes', function (r) { return r.clippingPlanes.slice(); }, function (r, v) { r.clippingPlanes = v.slice(); }],
+    // No getters; a fresh renderer has no custom sort functions.
+    ['opaqueSort', function () { return null; }, function (r) { r.setOpaqueSort(null); }],
+    ['transparentSort', function () { return null; }, function (r) { r.setTransparentSort(null); }],
+    prop(shadows, 'enabled'), prop(shadows, 'type'), prop(shadows, 'autoUpdate')
+  ];
+  function readBaseline(r) {
+    var out = {};
+    BASELINE.forEach(function (entry) { out[entry[0]] = entry[1](r); });
+    return out;
+  }
+  function resetRenderer(s) {
+    var r = s.renderer;
+    r.resetState();
     r.setRenderTarget(null);
-    if (r.getPixelRatio() !== 1) r.setPixelRatio(1);
-    var canvas = r.domElement;
-    if (canvas.width !== W || canvas.height !== H) r.setSize(W, H, false);
-    r.setViewport(0, 0, W, H);
-    r.setScissor(0, 0, W, H);
-    r.setScissorTest(false);
-    r.setClearColor(s.clearColor, s.clearAlpha);
+    BASELINE.forEach(function (entry) { entry[2](r, s.baseline[entry[0]]); });
+    r.shadowMap.needsUpdate = true;
     r.clear(true, true, true);  // a painter that draws nothing leaves an empty picture
   }
 
@@ -838,7 +868,7 @@
       return render.call(renderer, scene, camera);
     };
     state.renderer = renderer;
-    state.defaults = readSettings(renderer);
+    state.baseline = readBaseline(renderer);
     shared = state;
     return state;
   }
@@ -859,7 +889,7 @@
 
   // Per segment instance: created lazily by the first ctx.three() call.
   function threeFor(W, H, root, svg) {
-    var own = null;  // {canvas, g, settings, scenes}
+    var own = null;  // {canvas, g, scenes}
     return {
       get: function () {
         if (!own) {
@@ -870,17 +900,15 @@
           canvas.setAttribute('data-edu-three', '');
           canvas.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px';
           root.insertBefore(canvas, svg);  // under the segment's SVG labels
-          own = {canvas: canvas, g: canvas.getContext('2d'), settings: s.defaults, scenes: new Set()};
+          own = {canvas: canvas, g: canvas.getContext('2d'), scenes: new Set()};
           s.users += 1;
-          applySettings(s.renderer, own.settings, W, H);
+          resetRenderer(s);
         }
         return {renderer: shared.renderer, THREE: window.THREE};
       },
-      // Right after build: keep what the build set on the renderer.
-      capture: function () { if (own) own.settings = readSettings(shared.renderer); },
       begin: function () {
         if (!own) return;
-        applySettings(shared.renderer, own.settings, W, H);
+        resetRenderer(shared);
         currentThree = own;
       },
       end: function () {
@@ -1218,7 +1246,6 @@
       gsap.set(cam, startCam.zoom);
       var result = build(ctx);
       if (result && typeof result.then === 'function') note('build 必须同步执行，不能返回 Promise');
-      three3d.capture();
       gsap.globalTimeline.getChildren(false, true, true).forEach(function (child) {
         if (!before.has(child) && child !== tl && child.duration() > 0) {
           note('有动画没放进 ctx.tl（直接用了 gsap.to/from 等），它不会随时间播放');
