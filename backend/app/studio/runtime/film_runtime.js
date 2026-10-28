@@ -29,12 +29,14 @@
     return el;
   }
 
-  // Text fonts shipped in fonts.css (KaTeX loads its own faces when formulas render).
+  // Text fonts shipped in fonts.css, and KaTeX's faces (whole files, no unicode-range).
   var TEXT_FAMILIES = ['Noto Sans SC', 'LXGW WenKai'];
+  var KATEX_PREFIX = 'KaTeX_';
 
   // Before any segment is built: load every weight/style of the shipped text fonts for all
   // characters the film's inline scripts contain (segment code, character code, narration)
-  // plus printable ASCII, so build-time measurements already use the real metrics.
+  // plus printable ASCII, and every KaTeX face when the code calls katex, so build-time
+  // measurements already use the real metrics.
   function preloadFonts() {
     var sample = ' ';
     for (var c = 33; c < 127; c++) sample += String.fromCharCode(c);
@@ -44,10 +46,12 @@
         if (ch.trim() && !seen.has(ch)) { seen.add(ch); sample += ch; }
       });
     });
+    var usesKatex = /\bkatex\s*\./.test(Array.prototype.map.call(
+      document.querySelectorAll('script:not([src])'), function (s) { return s.textContent; }).join('\n'));
     var keys = new Set();
     document.fonts.forEach(function (face) {
       var family = face.family.replace(/^["']|["']$/g, '');
-      if (TEXT_FAMILIES.indexOf(family) >= 0) {
+      if (TEXT_FAMILIES.indexOf(family) >= 0 || (usesKatex && family.indexOf(KATEX_PREFIX) === 0)) {
         keys.add(face.style + ' ' + face.weight + ' 16px "' + family + '"');
       }
     });
@@ -77,19 +81,34 @@
     if (!master) throw new Error('影片还没有启动');
     if (typeof t !== 'number' || !isFinite(t)) throw new Error('renderFrame 的时间必须是有限数字');
     t = Math.min(Math.max(t, 0), film.duration);
-    master.seek(t, false);
+    master.seek(t, true);  // events stay suppressed: callbacks never drive the picture
     var active = layers[0];
     layers.forEach(function (item) { if (item.start <= t) active = item; });
+    if (!active.failed) {
+      try {
+        active.instance.paint();
+      } catch (error) {
+        isolate(active, '第 ' + active.id + ' 段：绘制失败：' + (error && error.message || error));
+      }
+    }
     layers.forEach(function (item) {
-      var on = item === active;
+      var on = item === active && !item.failed;
       item.instance.layer.style.visibility = on ? 'visible' : 'hidden';
       item.instance.layer.style.opacity = on ? '1' : '0';
       item.instance.checkGeometry();
     });
   }
 
+  // A segment that failed draws nothing for the rest of the film.
+  function isolate(item, message) {
+    item.failed = true;
+    item.instance.layer.style.visibility = 'hidden';
+    item.instance.layer.style.opacity = '0';
+    diag(message, item.id);
+  }
+
   function fontProblem(error) {
-    diag('字体加载失败：' + (error && error.message || error));
+    diag('字体加载失败：' + (error && error.message || error), null);
   }
 
   function build() {
@@ -108,17 +127,17 @@
       try {
         instance = EduStudio._createSegment(meta, stage, size);
       } catch (error) {
-        diag(error.message);
+        diag(String(error && error.message || error), meta.id);
         instance = emptySegment(meta);
       }
       instance.tl.paused(false);
       timeline.add(instance.tl, starts[meta.id]);
-      layers.push({id: meta.id, start: starts[meta.id], instance: instance});
+      layers.push({id: meta.id, start: starts[meta.id], instance: instance, failed: !!instance.failed});
     });
     timeline.set({}, {}, film.duration);
-    // Same preroll as each segment, with events on, so frame 0 has every ratio-0 onUpdate.
-    timeline.seek(film.duration, false);
-    timeline.seek(0, false);
+    // Same preroll as each segment, with events suppressed.
+    timeline.seek(film.duration, true);
+    timeline.seek(0, true);
     master = timeline;
     renderFrame(0);
     void stage.offsetHeight;
@@ -129,7 +148,7 @@
     try {
       film = readFilm();
     } catch (error) {
-      diag('影片启动失败：' + (error && error.message || error));
+      diag('影片启动失败：' + (error && error.message || error), null);
       rejectReady(error);
       return;
     }
@@ -137,7 +156,7 @@
       renderFrame(0);
       resolveReady(true);
     }, function (error) {
-      diag('影片启动失败：' + (error && error.message || error));
+      diag('影片启动失败：' + (error && error.message || error), null);
       rejectReady(error);
     });
   }
@@ -150,7 +169,8 @@
     stage.appendChild(layer);
     var tl = gsap.timeline({paused: true});
     tl.set({}, {}, meta.duration);
-    return {id: meta.id, layer: layer, tl: tl, checkGeometry: function () {}};
+    return {id: meta.id, layer: layer, tl: tl, failed: true, paint: function () {},
+      checkGeometry: function () {}};
   }
 
   // Checks only: a fresh, isolated copy of one segment, built in an invisible sandbox.

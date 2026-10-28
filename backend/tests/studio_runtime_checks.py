@@ -19,6 +19,10 @@ SCALING_PART = CORE + '\n' + (FIXTURES / 'scaling_part.js').read_text(encoding='
 MOVING_PART = CORE + '\n' + (FIXTURES / 'moving_part.js').read_text(encoding='utf-8')
 CANVAS = (FIXTURES / 'canvas_segment.js').read_text(encoding='utf-8')
 TEXT_WIDTH = (FIXTURES / 'text_width_segment.js').read_text(encoding='utf-8')
+TEXT_SWITCH = (FIXTURES / 'text_switch_segment.js').read_text(encoding='utf-8')
+THROWING_PAINTER = (FIXTURES / 'throwing_painter_segment.js').read_text(encoding='utf-8')
+THROWING_BUILD = (FIXTURES / 'throwing_build_segment.js').read_text(encoding='utf-8')
+KATEX = (FIXTURES / 'katex_segment.js').read_text(encoding='utf-8')
 API_MD = RUNTIME_DIR / 'API.md'
 
 NARRATION = '二次函数的图像是一条抛物线，顶点就是它的最低点。'
@@ -106,14 +110,14 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(set(digests)), 1)
         async with studio_page(core_film(code=MUTATING_PART)) as (page, errors):
             await page.evaluate('t=>window.renderFrame(t)', 1.5)
-            self.assertTrue(any('角色零件形状被修改' in e for e in await page.evaluate('window.studioDiagnostics')))
+            self.assertTrue(any('角色零件形状被修改' in e['message'] for e in await page.evaluate('window.studioDiagnostics')))
 
     async def test_part_groups_may_only_rotate_about_their_pivot(self):
         for code in (SCALING_PART, MOVING_PART):
             async with studio_page(core_film(code=code)) as (page, _):
                 await page.evaluate('t=>window.renderFrame(t)', 2.5)
                 diagnostics = await page.evaluate('window.studioDiagnostics')
-                self.assertTrue(any('角色零件形状被修改' in e for e in diagnostics), diagnostics)
+                self.assertTrue(any('角色零件形状被修改' in e['message'] for e in diagnostics), diagnostics)
         async with studio_page(core_film()) as (page, _):  # core pose() rotates arm_r by -60 degrees
             for t in (1.5, 4.0, 0):
                 await page.evaluate('t=>window.renderFrame(t)', t)
@@ -140,6 +144,41 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
                 return [+w.dataset.builtWidth, w.querySelector('text').getComputedTextLength()]})()''')
             self.assertAlmostEqual(built, now, 1)
             self.assertAlmostEqual(await page.evaluate('+EduFilm.instantiate("a").root.dataset.builtWidth'), now, 1)
+
+    async def test_formulas_are_built_with_loaded_katex_fonts(self):
+        async with studio_page(plain_film(KATEX)) as (page, _):
+            built, now = await page.evaluate('''(()=>{const w=document.querySelector('.edu-stage .edu-world');
+                return [+w.dataset.builtWidth, w.querySelector('div').getBoundingClientRect().width]})()''')
+            self.assertAlmostEqual(built, now, 1)
+
+    async def test_tl_set_text_switch_is_seek_safe(self):
+        label = "document.querySelector('.edu-stage [data-edu-id=label]').textContent"
+        called = "document.querySelector('.edu-stage [data-edu-id=called]').textContent"
+        expected = {0: 'A', 0.5: 'A', 2.5: 'B'}
+        async with studio_page(plain_film(TEXT_SWITCH)) as (page, errors):
+            self.assertEqual(await page.evaluate(label), 'A')  # right after studioReady
+            for t in (0, 0.5, 2.5, 0.5, 0, 2.5, 0.5):  # forward, backward, forward again
+                await page.evaluate('t=>window.renderFrame(t)', t)
+                self.assertEqual(await page.evaluate(label), expected[t], t)
+                self.assertEqual(await page.evaluate(called), 'A', t)  # tl.call never drives visible state
+            self.assertEqual(errors, [])
+
+    async def test_failing_segment_draws_nothing_and_is_named(self):
+        from PIL import Image
+
+        async def centre(page, t):
+            await page.evaluate('t=>window.renderFrame(t)', t)
+            return Image.open(io.BytesIO(await page.screenshot())).convert('RGB').getpixel((640, 360))
+        # The painter throws only from 1 s on: red before, nothing from that segment afterwards.
+        for code, before, after in ((THROWING_PAINTER, (0.5,), (1.5, 0.5, 0)), (THROWING_BUILD, (), (0.5, 0))):
+            async with studio_page(plain_film(code)) as (page, _):
+                for t in before:
+                    self.assertEqual(await centre(page, t), (255, 0, 0), t)
+                for t in after:
+                    self.assertNotEqual(await centre(page, t), (255, 0, 0), (code[:30], t))
+                diagnostics = await page.evaluate('window.studioDiagnostics')
+                self.assertTrue(any(d['segment'] == 'a' and d['message'].startswith('第 a 段')
+                                    and 'boom' in d['message'] for d in diagnostics), diagnostics)
 
     async def test_api_examples_run_as_segment_code(self):
         # Blocks calling defineCharacter are character code; every other block is a segment body.

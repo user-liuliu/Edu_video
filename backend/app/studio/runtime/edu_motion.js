@@ -24,8 +24,10 @@
   };
 
   var diagnostics = window.studioDiagnostics = window.studioDiagnostics || [];
-  function diag(message) {
-    if (diagnostics.indexOf(message) < 0) diagnostics.push(message);
+  // Each entry is {segment: id or null, message}; the message already names the segment.
+  function diag(message, segment) {
+    if (diagnostics.some(function (d) { return d.message === message; })) return;
+    diagnostics.push({segment: segment === undefined ? null : segment, message: message});
   }
 
   var segments = new Map();
@@ -112,7 +114,12 @@
     if (!build) throw new Error('第 ' + id + ' 段没有定义（缺少 EduStudio.defineSegment）');
     var W = size.width, H = size.height;
     var where = '第 ' + id + ' 段';
-    function fail(message) { return new Error(where + '：' + message); }
+    function fail(message) {
+      var error = new Error(where + '：' + message);
+      error.segment = id;
+      return error;
+    }
+    function note(message) { diag(where + '：' + message, id); }
     function finite(value, label) {
       if (typeof value !== 'number' || !isFinite(value)) throw fail(label + ' 必须是有限数字，实际是 ' + value);
       return value;
@@ -146,6 +153,7 @@
     var words = meta.words || [];
     var actors = new Map();
     var keep = [];
+    var painters = [];
 
     // Camera: `cam` zooms about the stage centre, `root` pans so (x, y) lands at the centre.
     function cameraVars(target) {
@@ -361,6 +369,10 @@
       },
       camera: camera,
       actor: actor,
+      paint: function (painter) {
+        if (typeof painter !== 'function') throw fail('ctx.paint 需要一个函数');
+        painters.push(painter);
+      },
       endState: function (end) {
         onlyKeys(end, ['keep'], 'endState');
         var labels = end.keep || [];
@@ -371,47 +383,53 @@
       }
     };
 
-    var before = new Set(gsap.globalTimeline.getChildren(false, true, true));
-    var result;
-    try {
-      result = build(ctx);
-    } catch (error) {
-      tl.kill();
-      layer.remove();
-      throw fail('构建失败：' + (error && error.message || error));
-    }
-    if (result && typeof result.then === 'function') diag(where + '：build 必须同步执行，不能返回 Promise');
-    gsap.globalTimeline.getChildren(false, true, true).forEach(function (child) {
-      if (!before.has(child) && child !== tl && child.duration() > 0) {
-        diag(where + '：有动画没放进 ctx.tl（直接用了 gsap.to/from 等），它不会随时间播放');
-        child.kill();
-      }
-    });
-    keep.forEach(function (label) {
-      if (!root.querySelector('[data-edu-id="' + CSS.escape(label) + '"]')) {
-        diag(where + '：endState 里保留的 ' + label + ' 找不到对应的 data-edu-id 元素');
-      }
-    });
-    if (tl.duration() > meta.duration + 1e-3) {
-      diag(where + '：动画长 ' + round(tl.duration()) + ' 秒，超过了本段时长 ' + meta.duration + ' 秒');
-    } else {
-      tl.set({}, {}, meta.duration);
-    }
-
     function checkGeometry() {
       actors.forEach(function (a, name) {
         if (!a.reported && hashString(a.shapeString()) !== a.baseline) {
           a.reported = true;
-          diag(where + '：角色零件形状被修改（' + name + '），角色只能整体移动、翻转、缩放或转动零件');
+          note('角色零件形状被修改（' + name + '），角色只能整体移动、翻转、缩放或转动零件');
         }
       });
     }
-    // Initialise every tween in time order once, so recorded start values never depend on
-    // which time is visited first. Events stay on: seeking back fires each tween's ratio-0
-    // onUpdate, so canvas drawn in onUpdate shows the same frame 0 as after any later visit.
-    tl.seek(tl.duration(), false);
-    checkGeometry();
-    tl.seek(0, false);
+    function paint() {
+      var local = Math.min(Math.max(tl.time(), 0), meta.duration);
+      painters.forEach(function (painter) { painter(local); });
+    }
+
+    var before = new Set(gsap.globalTimeline.getChildren(false, true, true));
+    try {
+      var result = build(ctx);
+      if (result && typeof result.then === 'function') note('build 必须同步执行，不能返回 Promise');
+      gsap.globalTimeline.getChildren(false, true, true).forEach(function (child) {
+        if (!before.has(child) && child !== tl && child.duration() > 0) {
+          note('有动画没放进 ctx.tl（直接用了 gsap.to/from 等），它不会随时间播放');
+          child.kill();
+        }
+      });
+      keep.forEach(function (label) {
+        if (!root.querySelector('[data-edu-id="' + CSS.escape(label) + '"]')) {
+          note('endState 里保留的 ' + label + ' 找不到对应的 data-edu-id 元素');
+        }
+      });
+      if (tl.duration() > meta.duration + 1e-3) {
+        note('动画长 ' + round(tl.duration()) + ' 秒，超过了本段时长 ' + meta.duration + ' 秒');
+      } else {
+        tl.set({}, {}, meta.duration);
+      }
+      // Initialise every tween in time order once, so recorded start values never depend on
+      // which time is visited first. Events stay suppressed here and on every later seek:
+      // callbacks fire only when crossed, so they must never drive what is drawn.
+      tl.seek(tl.duration(), true);
+      checkGeometry();
+      tl.seek(0, true);
+      paint();
+    } catch (error) {
+      tl.kill();
+      layer.remove();
+      var message = String(error && error.message || error);
+      if (message.indexOf(where + '：') === 0) message = message.slice(where.length + 1);
+      throw fail('构建失败：' + message);
+    }
 
     return {
       id: id,
@@ -419,6 +437,7 @@
       tl: tl,
       ctx: ctx,
       checkGeometry: checkGeometry,
+      paint: paint,
       api: {
         id: id,
         tl: tl,
@@ -427,7 +446,8 @@
         cue: ctx.cue,
         cueEnd: ctx.cueEnd,
         state: function (t) {
-          tl.seek(t === undefined ? tl.time() : at(t, '时间 t'), false);
+          tl.seek(t === undefined ? tl.time() : at(t, '时间 t'), true);
+          paint();
           var measured = {};
           actors.forEach(function (a, name) { measured[name] = a.measure(); });
           return {camera: measureCamera(), actors: measured, keep: keep.slice()};

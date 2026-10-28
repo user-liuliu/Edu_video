@@ -7,7 +7,9 @@
 - 每一帧只由时间决定。所有动画都放在 `ctx.tl` 上，运行时只通过 seek 定位，不会自己播放。
 - `build(ctx)` 同步执行，不能用定时器、`requestAnimationFrame`、`Math.random`、`Date`、网络请求。需要随机数用 `ctx.random()`。
 - 不要用 `gsap.to/from/timeline` 直接建动画（不会播放，会记一条诊断）；用 `ctx.tl.to/from/fromTo/set`。`gsap.set` 可以用，会立即生效，作为本段的初始状态。
-- Canvas 或 three.js 只能在 tween 的 `onUpdate` 里按当前进度重画整张画面。每块画布只由一个 tween 来画，这个 tween 每次都要把整块画布重画一遍。
+- 运行时定位时间线时不触发任何回调。所以 `tl.call`、`onStart`、`onComplete`、`onUpdate` 里不要改任何看得见的东西，改了也不会显示。
+- 瞬间的变化，比如换文字、显示或隐藏，用 `ctx.tl.set`，例如 `ctx.tl.set(el, {textContent: 'B'}, 2)`。连续的变化用 `ctx.tl.to` 去补间元素属性或普通对象。
+- Canvas 和 three.js 只能在 `ctx.paint` 里画，每次都把整块画布重画一遍，画的时候读被补间的普通对象。
 - 元素用 `data-edu-id="标签"` 命名，高亮和 `endState` 都按这个标签找元素。SVG 里的 `id`（渐变、滤镜、clipPath）要带上段 id 前缀，避免和别的段重名。
 - 可用的库：`gsap`（含 DrawSVGPlugin、MorphSVGPlugin、MotionPathPlugin、SplitText）、`katex`、`THREE`、`rough`。字体：`"Noto Sans SC"`（400、700）、`"LXGW WenKai"`。
 
@@ -62,6 +64,22 @@ ctx.tl.to(dot, {scale: 1, duration: 0.3}, ctx.cueEnd('顶点'));
 const jitter = (ctx.random() - 0.5) * 20;  // -10 到 10 像素
 ```
 
+### 绘制
+`ctx.paint(painter)`：注册一个绘制函数。每次定位到新的时间，只要本段可见，运行时会在补间值都更新好以后调用 `painter(t)`，`t` 是本段内的时间（秒）。painter 只能根据补间出来的值和 `t` 把画布整块重画，不能累积上一帧的结果。painter 抛错时，本段从此不再显示，并记一条带段 id 的诊断。
+```js
+const canvas = document.createElement('canvas');
+canvas.width = 400; canvas.height = 200;
+ctx.root.appendChild(canvas);
+const g = canvas.getContext('2d');
+const bar = {w: 0};
+ctx.tl.to(bar, {w: 400, duration: 2, ease: 'none'}, 0.5);
+ctx.paint(function (t) {
+  g.clearRect(0, 0, 400, 200);
+  g.fillStyle = '#2b6cb0';
+  g.fillRect(0, 80, bar.w, 40);
+});
+```
+
 ### 镜头
 `ctx.camera.shot({x, y, zoom}, at, dur=1, ease='power2.inOut')`：从 `at` 秒起用 `dur` 秒把镜头对准画布坐标 (x, y)，zoom 为放大倍数（1 为原样，大于 0）。三个参数都可以只写一部分。`dur` 为 0 时直接切过去。本段开始时自动应用 `startState.camera`（默认 x=640、y=360、zoom=1）。
 ```js
@@ -99,4 +117,4 @@ ctx.endState({keep: ['dot']});
 - `EduFilm.instantiate(id) -> {tl, duration, cue, cueEnd, state(t), geometryDigest(), destroy()}`：在不可见的沙盒里重新构建一段。`state(t)` 定位到 t 秒后测量镜头和角色的实际值，返回 StageState；`geometryDigest()` 是所有角色零件内部形状的哈希。
 - `window.renderFrame(t)`：把整片定位到 t 秒。
 - `window.studioReady`：字体和所有段都准备好后 resolve。
-- `window.studioDiagnostics`：运行时发现的错误和违规（中文字符串）。
+- `window.studioDiagnostics`：运行时发现的错误和违规，每条是 `{segment: 段 id 或 null, message: 中文说明}`。出错的段从此不再显示。
