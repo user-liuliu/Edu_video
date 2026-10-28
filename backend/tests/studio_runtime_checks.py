@@ -23,6 +23,8 @@ TEXT_SWITCH = (FIXTURES / 'text_switch_segment.js').read_text(encoding='utf-8')
 THROWING_PAINTER = (FIXTURES / 'throwing_painter_segment.js').read_text(encoding='utf-8')
 THROWING_BUILD = (FIXTURES / 'throwing_build_segment.js').read_text(encoding='utf-8')
 KATEX = (FIXTURES / 'katex_segment.js').read_text(encoding='utf-8')
+KATEX_HELPER = (FIXTURES / 'katex_helper.js').read_text(encoding='utf-8')
+KATEX_HELPER_SEGMENT = (FIXTURES / 'katex_helper_segment.js').read_text(encoding='utf-8')
 API_MD = RUNTIME_DIR / 'API.md'
 
 NARRATION = '二次函数的图像是一条抛物线，顶点就是它的最低点。'
@@ -146,10 +148,14 @@ class StudioRuntimeChecks(unittest.IsolatedAsyncioTestCase):
             self.assertAlmostEqual(await page.evaluate('+EduFilm.instantiate("a").root.dataset.builtWidth'), now, 1)
 
     async def test_formulas_are_built_with_loaded_katex_fonts(self):
-        async with studio_page(plain_film(KATEX)) as (page, _):
-            built, now = await page.evaluate('''(()=>{const w=document.querySelector('.edu-stage .edu-world');
-                return [+w.dataset.builtWidth, w.querySelector('div').getBoundingClientRect().width]})()''')
-            self.assertAlmostEqual(built, now, 1)
+        # Direct call in segment code, and a call through a helper from the character code,
+        # where no script on the page contains the library name followed by a dot.
+        for code, characters in ((KATEX, ''), (KATEX_HELPER_SEGMENT, KATEX_HELPER)):
+            async with studio_page(plain_film(code, characters=characters)) as (page, _):
+                self.assertEqual(await page.evaluate('window.studioDiagnostics'), [])
+                built, now = await page.evaluate('''(()=>{const w=document.querySelector('.edu-stage .edu-world');
+                    return [+w.dataset.builtWidth, w.querySelector('div').getBoundingClientRect().width]})()''')
+                self.assertAlmostEqual(built, now, 1, code[:40])
 
     async def test_tl_set_text_switch_is_seek_safe(self):
         label = "document.querySelector('.edu-stage [data-edu-id=label]').textContent"

@@ -35,8 +35,9 @@
 
   // Before any segment is built: load every weight/style of the shipped text fonts for all
   // characters the film's inline scripts contain (segment code, character code, narration)
-  // plus printable ASCII, and every KaTeX face when the code calls katex, so build-time
-  // measurements already use the real metrics.
+  // plus printable ASCII, and every KaTeX face (always: formulas may be drawn by runtime
+  // helpers, so no script text tells whether they are used), so build-time measurements
+  // already use the real metrics.
   function preloadFonts() {
     var sample = ' ';
     for (var c = 33; c < 127; c++) sample += String.fromCharCode(c);
@@ -46,12 +47,10 @@
         if (ch.trim() && !seen.has(ch)) { seen.add(ch); sample += ch; }
       });
     });
-    var usesKatex = /\bkatex\s*\./.test(Array.prototype.map.call(
-      document.querySelectorAll('script:not([src])'), function (s) { return s.textContent; }).join('\n'));
     var keys = new Set();
     document.fonts.forEach(function (face) {
       var family = face.family.replace(/^["']|["']$/g, '');
-      if (TEXT_FAMILIES.indexOf(family) >= 0 || (usesKatex && family.indexOf(KATEX_PREFIX) === 0)) {
+      if (TEXT_FAMILIES.indexOf(family) >= 0 || family.indexOf(KATEX_PREFIX) === 0) {
         keys.add(face.style + ' ' + face.weight + ' 16px "' + family + '"');
       }
     });

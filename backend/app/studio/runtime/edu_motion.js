@@ -166,9 +166,6 @@
       }
       return {pan: pan, zoom: zoom};
     }
-    var startCam = cameraVars(Object.assign({x: W / 2, y: H / 2, zoom: 1}, startState.camera || {}));
-    gsap.set(root, startCam.pan);
-    gsap.set(cam, startCam.zoom);
 
     var camera = {
       shot: function (target, start, dur, ease) {
@@ -398,6 +395,9 @@
 
     var before = new Set(gsap.globalTimeline.getChildren(false, true, true));
     try {
+      var startCam = cameraVars(Object.assign({x: W / 2, y: H / 2, zoom: 1}, startState.camera || {}));
+      gsap.set(root, startCam.pan);
+      gsap.set(cam, startCam.zoom);
       var result = build(ctx);
       if (result && typeof result.then === 'function') note('build 必须同步执行，不能返回 Promise');
       gsap.globalTimeline.getChildren(false, true, true).forEach(function (child) {
